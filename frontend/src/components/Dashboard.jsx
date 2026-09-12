@@ -10,10 +10,11 @@ export default function Dashboard() {
   const fetchData = async () => {
     setLoading(true);
     setError(null);
+    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
     try {
       const [aptRes, wtlRes] = await Promise.all([
-        fetch('http://localhost:5000/api/appointments').then(r => r.json()),
-        fetch('http://localhost:5000/api/waitlist').then(r => r.json())
+        fetch(`${apiUrl}/appointments`).then(r => r.json()),
+        fetch(`${apiUrl}/waitlist`).then(r => r.json())
       ]);
 
       if (aptRes.success) setAppointments(aptRes.data || []);

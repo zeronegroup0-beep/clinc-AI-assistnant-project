@@ -4,6 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "build": "npm --prefix frontend install && npm --prefix frontend run build",
     "test": "echo \"Error: no test specified\" && exit 1",
     "test:qa": "node scratch/qa_runner.js"
   },
