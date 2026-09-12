@@ -1,0 +1,137 @@
+[
+  {
+    "service_id": "teeth_whitening_zoom",
+    "name": "جلسة تبييض الأسنان بالليزر (Zoom)",
+    "display_name": "تبييض الأسنان بالليزر",
+    "category": "طب الأسنان",
+    "assigned_doctor_id": "dr_ahmed",
+    "assigned_doctor_name": "د. أحمد شريف",
+    "keywords": [
+      "جلسة تبييض الأسنان بالليزر (zoom)",
+      "جلسة تبييض الاسنان بالليزر (zoom)",
+      "جلسة تبييض الأسنان بالليزر",
+      "جلسة تبييض الاسنان بالليزر",
+      "تبييض الأسنان بالليزر",
+      "تبييض الاسنان بالليزر",
+      "تبييض بالليزر",
+      "تبييض اسنان",
+      "تبييض أسنان",
+      "تبييض الأسنان",
+      "تبييض الاسنان",
+      "zoom",
+      "زووم",
+      "زوم",
+      "تبييض"
+    ],
+    "durationMinutes": 45,
+    "price": 1500
+  },
+  {
+    "service_id": "laser_hair_removal",
+    "name": "جلسة إزالة الشعر بالليزر",
+    "display_name": "إزالة الشعر بالليزر",
+    "category": "الجلدية والتجميل",
+    "assigned_doctor_id": "dr_sara",
+    "assigned_doctor_name": "د. سارة محمود",
+    "keywords": [
+      "إزالة الشعر بالليزر",
+      "ازالة الشعر بالليزر",
+      "ليزر إزالة شعر",
+      "ليزر ازالة شعر",
+      "ليزر شعر",
+      "فراكشنال ليزر",
+      "فراكشنال",
+      "جلسات ليزر",
+      "جلسة ليزر للجسم",
+      "جلسة ليزر للوجه",
+      "إزالة شعر",
+      "ازالة شعر"
+    ],
+    "durationMinutes": 30,
+    "price": 800
+  },
+  {
+    "service_id": "dental_checkup",
+    "name": "كشف أسنان دوري وتنظيف",
+    "display_name": "كشف أسنان",
+    "category": "طب الأسنان",
+    "assigned_doctor_id": "dr_ahmed",
+    "assigned_doctor_name": "د. أحمد شريف",
+    "keywords": [
+      "كشف أسنان",
+      "كشف اسنان",
+      "تنظيف جير",
+      "حشو عصب",
+      "حشو ضرس",
+      "حشو اسنان",
+      "خلع ضرس",
+      "خلع سنان",
+      "تقويم أسنان",
+      "تقويم اسنان"
+    ],
+    "durationMinutes": 30,
+    "price": 350
+  },
+  {
+    "service_id": "skin_care_cosmetics",
+    "name": "جلسة نضارة وفيلر وبوتوكس",
+    "display_name": "نضارة وتجميل البشرة",
+    "category": "الجلدية والتجميل",
+    "assigned_doctor_id": "dr_sara",
+    "assigned_doctor_name": "د. سارة محمود",
+    "keywords": [
+      "كشف جلدية",
+      "كشف جلديه",
+      "تنظيف بشرة",
+      "تنظيف بشره",
+      "حقن فيلر",
+      "حقن بوتوكس",
+      "بوتكس",
+      "بوتوكس",
+      "فيلر",
+      "تساقط شعر",
+      "تقشير بارد",
+      "تقشير كيميائي"
+    ],
+    "durationMinutes": 30,
+    "price": 400
+  },
+  {
+    "service_id": "cardiology_internal_checkup",
+    "name": "كشف باطنة ورسم قلب",
+    "display_name": "كشف باطنة وقلب",
+    "category": "أمراض الباطنة والقلب",
+    "assigned_doctor_id": "dr_hossam",
+    "assigned_doctor_name": "د. حسام فتحي",
+    "keywords": [
+      "كشف باطنة",
+      "كشف باطنه",
+      "رسم قلب",
+      "فحص سكر وضغط",
+      "سونار بطن",
+      "ايكو قلب",
+      "ايكو"
+    ],
+    "durationMinutes": 30,
+    "price": 400
+  },
+  {
+    "service_id": "ophthalmology_checkup",
+    "name": "كشف عيون وقياس نظر",
+    "display_name": "كشف عيون وفحص نظر",
+    "category": "طب وجراحة العيون",
+    "assigned_doctor_id": "dr_mariam",
+    "assigned_doctor_name": "د. مريم نبيل",
+    "keywords": [
+      "كشف عيون",
+      "كشف رمد",
+      "قياس نظر",
+      "فحص قاع عين",
+      "عملية ليزك",
+      "ليزك",
+      "مياه بيضاء"
+    ],
+    "durationMinutes": 30,
+    "price": 350
+  }
+]

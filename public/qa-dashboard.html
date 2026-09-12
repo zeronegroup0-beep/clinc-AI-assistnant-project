@@ -1,0 +1,861 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nora AI QA Playground • لوحة اختبار نورا</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0b0f19;
+            --bg-secondary: #111827;
+            --bg-card: rgba(17, 24, 39, 0.75);
+            --border-color: rgba(255, 255, 255, 0.08);
+            --border-active: rgba(16, 185, 129, 0.35);
+            --text-main: #f3f4f6;
+            --text-muted: #9ca3af;
+            --primary: #10b981;
+            --primary-glow: rgba(16, 185, 129, 0.25);
+            --danger: #ef4444;
+            --danger-bg: rgba(239, 68, 68, 0.12);
+            --success-bg: rgba(16, 185, 129, 0.12);
+            --warning: #f59e0b;
+            --accent: #3b82f6;
+            --font-ar: 'Cairo', system-ui, sans-serif;
+            --font-en: 'Inter', system-ui, sans-serif;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg-primary);
+            background-image: 
+                radial-gradient(at 0% 0%, rgba(16, 185, 129, 0.08) 0px, transparent 50%),
+                radial-gradient(at 100% 100%, rgba(59, 130, 246, 0.06) 0px, transparent 50%);
+            color: var(--text-main);
+            font-family: var(--font-ar);
+            line-height: 1.6;
+            min-height: 100vh;
+            padding: 2rem 1.5rem;
+        }
+
+        .container {
+            max-width: 1300px;
+            margin: 0 auto;
+        }
+
+        /* Header */
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+            padding-bottom: 1.5rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .brand-icon {
+            width: 48px;
+            height: 48px;
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            border-radius: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            box-shadow: 0 0 20px var(--primary-glow);
+        }
+
+        .brand h1 {
+            font-size: 1.6rem;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+        }
+
+        .brand p {
+            font-size: 0.88rem;
+            color: var(--text-muted);
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 0.75rem;
+            align-items: center;
+        }
+
+        /* Buttons */
+        .btn {
+            font-family: var(--font-ar);
+            font-size: 0.95rem;
+            font-weight: 700;
+            padding: 0.65rem 1.35rem;
+            border-radius: 10px;
+            border: 1px solid transparent;
+            cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            user-select: none;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white;
+            box-shadow: 0 4px 14px var(--primary-glow);
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px var(--primary-glow);
+            filter: brightness(1.08);
+        }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.05);
+            border-color: var(--border-color);
+            color: var(--text-main);
+        }
+
+        .btn-secondary:hover:not(:disabled) {
+            background: rgba(255, 255, 255, 0.08);
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+
+        /* Stats Cards */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .stat-card {
+            background: var(--bg-card);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--border-color);
+            border-radius: 14px;
+            padding: 1.25rem 1.5rem;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            right: 0;
+            left: 0;
+            height: 3px;
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .stat-card.passed::before { background: var(--primary); }
+        .stat-card.failed::before { background: var(--danger); }
+        .stat-card.rate::before { background: var(--accent); }
+
+        .stat-title {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            font-weight: 600;
+            margin-bottom: 0.35rem;
+        }
+
+        .stat-value {
+            font-family: var(--font-en);
+            font-size: 1.9rem;
+            font-weight: 800;
+            line-height: 1.2;
+        }
+
+        .stat-card.passed .stat-value { color: var(--primary); }
+        .stat-card.failed .stat-value { color: var(--danger); }
+        .stat-card.rate .stat-value { color: var(--accent); }
+
+        /* Progress Bar */
+        .progress-bar-container {
+            width: 100%;
+            height: 8px;
+            background: rgba(255, 255, 255, 0.06);
+            border-radius: 999px;
+            margin-bottom: 2rem;
+            overflow: hidden;
+            display: none;
+        }
+
+        .progress-bar-fill {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, #10b981, #3b82f6);
+            transition: width 0.3s ease;
+        }
+
+        /* Interactive Live Sandbox */
+        .sandbox-section {
+            background: var(--bg-card);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .section-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 1rem;
+        }
+
+        .section-title {
+            font-size: 1.15rem;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+        }
+
+        .sandbox-form {
+            display: flex;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+        }
+
+        .sandbox-input {
+            flex: 1;
+            min-width: 280px;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 0.75rem 1rem;
+            color: white;
+            font-family: var(--font-ar);
+            font-size: 1rem;
+            transition: all 0.2s;
+        }
+
+        .sandbox-input:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px var(--primary-glow);
+        }
+
+        .sandbox-result {
+            margin-top: 1rem;
+            padding: 1rem;
+            background: rgba(0, 0, 0, 0.4);
+            border-radius: 10px;
+            border: 1px solid var(--border-color);
+            display: none;
+        }
+
+        /* Filter Toolbar */
+        .filters-toolbar {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+            margin-bottom: 1.5rem;
+        }
+
+        .filter-btn {
+            font-family: var(--font-ar);
+            font-size: 0.85rem;
+            font-weight: 600;
+            padding: 0.45rem 1rem;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            color: var(--text-muted);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .filter-btn:hover {
+            background: rgba(255, 255, 255, 0.08);
+            color: var(--text-main);
+        }
+
+        .filter-btn.active {
+            background: rgba(16, 185, 129, 0.15);
+            border-color: var(--primary);
+            color: var(--primary);
+            font-weight: 700;
+        }
+
+        /* Test Cards Grid */
+        .tests-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 1rem;
+        }
+
+        .test-card {
+            background: var(--bg-card);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--border-color);
+            border-radius: 14px;
+            padding: 1.25rem 1.5rem;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+        }
+
+        .test-card:hover {
+            border-color: rgba(255, 255, 255, 0.15);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+        }
+
+        .test-card.passed {
+            border-right: 4px solid var(--primary);
+        }
+
+        .test-card.failed {
+            border-right: 4px solid var(--danger);
+        }
+
+        .card-header-line {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 1rem;
+            margin-bottom: 0.75rem;
+        }
+
+        .card-id-title {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+        }
+
+        .badge {
+            font-size: 0.75rem;
+            font-weight: 700;
+            padding: 0.25rem 0.65rem;
+            border-radius: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .badge-category {
+            background: rgba(59, 130, 246, 0.15);
+            color: #60a5fa;
+            border: 1px solid rgba(59, 130, 246, 0.3);
+        }
+
+        .badge-status-pending {
+            background: rgba(156, 163, 175, 0.15);
+            color: #9ca3af;
+        }
+
+        .badge-status-passed {
+            background: var(--success-bg);
+            color: var(--primary);
+            border: 1px solid rgba(16, 185, 129, 0.4);
+        }
+
+        .badge-status-failed {
+            background: var(--danger-bg);
+            color: var(--danger);
+            border: 1px solid rgba(239, 68, 68, 0.4);
+        }
+
+        .badge-status-running {
+            background: rgba(245, 158, 11, 0.15);
+            color: var(--warning);
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .test-title {
+            font-size: 1.05rem;
+            font-weight: 700;
+            color: var(--text-main);
+        }
+
+        .test-persona {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            margin-bottom: 0.85rem;
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+
+        /* Turns details */
+        .turn-box {
+            background: rgba(0, 0, 0, 0.25);
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            border-radius: 10px;
+            padding: 0.85rem 1rem;
+            margin-top: 0.75rem;
+        }
+
+        .turn-box + .turn-box {
+            margin-top: 0.5rem;
+        }
+
+        .turn-prompt {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.5rem;
+            font-weight: 700;
+            color: #a7f3d0;
+            margin-bottom: 0.4rem;
+        }
+
+        .turn-reply {
+            font-size: 0.92rem;
+            color: #e5e7eb;
+            white-space: pre-wrap;
+            padding: 0.6rem 0.8rem;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 8px;
+            border-right: 3px solid #3b82f6;
+            margin-top: 0.4rem;
+        }
+
+        .reasoning-pill {
+            display: inline-block;
+            font-size: 0.75rem;
+            background: rgba(16, 185, 129, 0.1);
+            color: #34d399;
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            margin-top: 0.4rem;
+            margin-left: 0.4rem;
+        }
+
+        .failure-list {
+            margin-top: 0.5rem;
+            padding: 0.5rem 0.75rem;
+            background: var(--danger-bg);
+            border-radius: 6px;
+            color: #fca5a5;
+            font-size: 0.85rem;
+            list-style: inside square;
+        }
+
+        .run-single-btn {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border-color);
+            color: var(--text-main);
+            font-size: 0.8rem;
+            font-weight: 600;
+            padding: 0.35rem 0.75rem;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .run-single-btn:hover {
+            background: var(--primary);
+            color: white;
+            border-color: var(--primary);
+        }
+
+        /* JSON Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.75);
+            backdrop-filter: blur(6px);
+            z-index: 999;
+            align-items: center;
+            justify-content: center;
+            padding: 1.5rem;
+        }
+
+        .modal-content {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            width: 100%;
+            max-width: 800px;
+            max-height: 85vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .modal-header {
+            padding: 1.25rem 1.5rem;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-body {
+            padding: 1.5rem;
+            overflow-y: auto;
+            direction: ltr;
+            text-align: left;
+            font-family: var(--font-en);
+            font-size: 0.85rem;
+        }
+
+        pre {
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header>
+            <div class="brand">
+                <div class="brand-icon">🤖</div>
+                <div>
+                    <h1>Nora AI QA Playground • لوحة اختبار نورا</h1>
+                    <p>منصة التحقق والاختبار الشامل للردود الذكية وضوابط المحادثة المصرية</p>
+                </div>
+            </div>
+            <div class="header-actions">
+                <button id="runAllBtn" class="btn btn-primary" onclick="runAllQA()">
+                    <span>▶</span> تشغيل جميع الاختبارات (22)
+                </button>
+                <button class="btn btn-secondary" onclick="exportReport()">
+                    <span>📥</span> تصدير التقرير JSON
+                </button>
+            </div>
+        </header>
+
+        <!-- Stats Grid -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-title">إجمالي الحالات (Total)</div>
+                <div class="stat-value" id="statTotal">22</div>
+            </div>
+            <div class="stat-card passed">
+                <div class="stat-title">الناجحة (Passed)</div>
+                <div class="stat-value" id="statPassed">0</div>
+            </div>
+            <div class="stat-card failed">
+                <div class="stat-title">الفاشلة (Failed)</div>
+                <div class="stat-value" id="statFailed">0</div>
+            </div>
+            <div class="stat-card rate">
+                <div class="stat-title">نسبة النجاح (Pass Rate)</div>
+                <div class="stat-value" id="statRate">0%</div>
+            </div>
+        </div>
+
+        <!-- Progress Bar -->
+        <div class="progress-bar-container" id="progressBar">
+            <div class="progress-bar-fill" id="progressFill"></div>
+        </div>
+
+        <!-- Interactive Live Sandbox -->
+        <div class="sandbox-section">
+            <div class="section-header">
+                <h2 class="section-title">
+                    <span>⚡</span> الاختبار المباشر السريع (Live Sandbox)
+                </h2>
+                <span style="font-size: 0.85rem; color: var(--text-muted)">جرّب أي جملة دارجة أو حالة حافة مخصصة</span>
+            </div>
+            <div class="sandbox-form">
+                <input type="text" id="customInput" class="sandbox-input" placeholder="اكتب جملة للاختبار فوراً (مثال: أخبارك ايه يا نورا / عايز أحجز مع دكتور أحمد بكرة الساعة 6 ونص)..." onkeydown="if(event.key==='Enter') runCustomTest()">
+                <button class="btn btn-primary" onclick="runCustomTest()">إرسال للاختبار</button>
+            </div>
+            <div class="sandbox-result" id="sandboxResult">
+                <div style="font-weight: 700; color: #34d399; margin-bottom: 0.4rem">رد نورا:</div>
+                <div id="sandboxReply" style="white-space: pre-wrap; font-size: 0.95rem; margin-bottom: 0.8rem"></div>
+                <div style="font-weight: 700; color: #60a5fa; margin-bottom: 0.4rem; font-size: 0.85rem">خطوات التفكير وأدوات النظام:</div>
+                <div id="sandboxReasoning" style="display: flex; flex-wrap: wrap; gap: 0.4rem"></div>
+            </div>
+        </div>
+
+        <!-- Filters Toolbar -->
+        <div class="filters-toolbar">
+            <button class="filter-btn active" onclick="filterCategory('all', this)">الكل (All)</button>
+            <button class="filter-btn" onclick="filterCategory('name_guard', this)">Entity Name Guard</button>
+            <button class="filter-btn" onclick="filterCategory('doctor_schedule', this)">Doctor Schedule</button>
+            <button class="filter-btn" onclick="filterCategory('relative_dates', this)">Relative Dates</button>
+            <button class="filter-btn" onclick="filterCategory('time_matching', this)">Time Matching</button>
+            <button class="filter-btn" onclick="filterCategory('slang_typos', this)">Slang & Typos</button>
+            <button class="filter-btn" onclick="filterCategory('phone_validation', this)">Phone Validation</button>
+            <button class="filter-btn" onclick="filterCategory('context_switch', this)">Context Switch</button>
+            <button class="filter-btn" onclick="filterCategory('edge_cases', this)">Edge Cases</button>
+        </div>
+
+        <!-- Test Cases Grid -->
+        <div class="tests-grid" id="testsGrid">
+            <!-- Populated dynamically -->
+        </div>
+    </div>
+
+    <!-- JSON Export Modal -->
+    <div class="modal" id="jsonModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 style="font-size: 1.1rem; font-weight: 700">تقرير نتائج QA بصيغة JSON</h3>
+                <button class="btn btn-secondary" style="padding: 0.2rem 0.6rem" onclick="closeModal()">✕</button>
+            </div>
+            <div class="modal-body">
+                <pre id="jsonContent"></pre>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let allCases = [];
+        let executionResults = {};
+        let activeFilter = 'all';
+
+        async function init() {
+            try {
+                const res = await fetch('/api/qa/cases').then(r => r.json());
+                if (res.success) {
+                    allCases = res.cases;
+                    document.getElementById('statTotal').innerText = allCases.length;
+                    renderCases();
+                }
+            } catch (err) {
+                console.error('Error loading QA cases:', err);
+            }
+        }
+
+        function renderCases() {
+            const grid = document.getElementById('testsGrid');
+            grid.innerHTML = '';
+
+            const filtered = activeFilter === 'all' 
+                ? allCases 
+                : allCases.filter(c => c.category === activeFilter);
+
+            filtered.forEach((tc, idx) => {
+                const result = executionResults[tc.id];
+                const status = result ? (result.passed ? 'passed' : 'failed') : 'pending';
+                const statusLabel = result ? (result.passed ? 'PASSED ✓' : 'FAILED ✗') : 'PENDING';
+                const badgeClass = result ? (result.passed ? 'badge-status-passed' : 'badge-status-failed') : 'badge-status-pending';
+
+                const card = document.createElement('div');
+                card.className = `test-card ${status}`;
+                card.id = `card_${tc.id}`;
+
+                let turnsHtml = '';
+                if (result && result.turns) {
+                    turnsHtml = result.turns.map((t, i) => `
+                        <div class="turn-box">
+                            <div class="turn-prompt">
+                                <span>👤 [المريض]:</span>
+                                <span>${escapeHtml(t.userMessage)}</span>
+                            </div>
+                            <div class="turn-reply">
+                                <strong>🤖 [نورا]:</strong> ${escapeHtml(t.botReply)}
+                            </div>
+                            <div style="margin-top: 0.4rem">
+                                ${t.reasoningSteps.map(s => `<span class="reasoning-pill">${escapeHtml(s)}</span>`).join('')}
+                            </div>
+                            ${t.turnFailures && t.turnFailures.length > 0 ? `
+                                <ul class="failure-list">
+                                    ${t.turnFailures.map(f => `<li>${escapeHtml(f)}</li>`).join('')}
+                                </ul>
+                            ` : ''}
+                        </div>
+                    `).join('');
+                } else {
+                    turnsHtml = `
+                        <div class="turn-box">
+                            <div class="turn-prompt">
+                                <span>👤 [نص البداية]:</span>
+                                <span>${escapeHtml(tc.initialPrompt)}</span>
+                            </div>
+                            <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.3rem">
+                                🎯 ${escapeHtml(tc.description)}
+                            </div>
+                        </div>
+                    `;
+                }
+
+                card.innerHTML = `
+                    <div class="card-header-line">
+                        <div class="card-id-title">
+                            <span class="badge badge-category">${tc.category}</span>
+                            <span class="badge ${badgeClass}" id="badge_${tc.id}">${statusLabel}</span>
+                            <span class="test-title">${tc.title}</span>
+                        </div>
+                        <button class="run-single-btn" onclick="runSingleQA('${tc.id}')">
+                            ▶ تشغيل الفحص
+                        </button>
+                    </div>
+                    <div class="test-persona">
+                        <span>👤 شخصية المستخدم:</span>
+                        <span>${tc.persona}</span>
+                        ${result ? `<span style="margin-right: auto; font-family: var(--font-en); font-size: 0.8rem; color: var(--text-muted)">⏱ ${result.durationMs}ms</span>` : ''}
+                    </div>
+                    ${turnsHtml}
+                `;
+
+                grid.appendChild(card);
+            });
+        }
+
+        async function runSingleQA(testId) {
+            const badge = document.getElementById(`badge_${testId}`);
+            if (badge) {
+                badge.className = 'badge badge-status-running';
+                badge.innerText = 'RUNNING ⟳';
+            }
+
+            try {
+                const res = await fetch('/api/qa/run-single', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ testId })
+                }).then(r => r.json());
+
+                if (res.success) {
+                    executionResults[testId] = res.result;
+                    updateStats();
+                    renderCases();
+                }
+            } catch (err) {
+                console.error('Error running single test:', err);
+            }
+        }
+
+        async function runAllQA() {
+            const btn = document.getElementById('runAllBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<span>⏳</span> جاري الاختبار...';
+
+            const progressBar = document.getElementById('progressBar');
+            const progressFill = document.getElementById('progressFill');
+            progressBar.style.display = 'block';
+            progressFill.style.width = '10%';
+
+            try {
+                progressFill.style.width = '30%';
+                const res = await fetch('/api/qa/run', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({})
+                }).then(r => r.json());
+
+                progressFill.style.width = '90%';
+
+                if (res.success && res.report) {
+                    res.report.results.forEach(r => {
+                        executionResults[r.id] = r;
+                    });
+                    updateStats();
+                    renderCases();
+                }
+                progressFill.style.width = '100%';
+                setTimeout(() => { progressBar.style.display = 'none'; }, 600);
+            } catch (err) {
+                console.error('Error running all QA:', err);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<span>▶</span> تشغيل جميع الاختبارات (22)';
+            }
+        }
+
+        function updateStats() {
+            const resultsList = Object.values(executionResults);
+            const passed = resultsList.filter(r => r.passed).length;
+            const failed = resultsList.filter(r => !r.passed).length;
+            const total = allCases.length;
+            const rate = total > 0 ? Math.round((passed / total) * 100) : 0;
+
+            document.getElementById('statPassed').innerText = passed;
+            document.getElementById('statFailed').innerText = failed;
+            document.getElementById('statRate').innerText = `${rate}%`;
+        }
+
+        function filterCategory(cat, btn) {
+            activeFilter = cat;
+            document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            renderCases();
+        }
+
+        async function runCustomTest() {
+            const input = document.getElementById('customInput');
+            const text = input.value.trim();
+            if (!text) return;
+
+            const resDiv = document.getElementById('sandboxResult');
+            const replyDiv = document.getElementById('sandboxReply');
+            const reasonDiv = document.getElementById('sandboxReasoning');
+
+            replyDiv.innerText = 'جاري المعالجة والتحليل...';
+            reasonDiv.innerHTML = '';
+            resDiv.style.display = 'block';
+
+            try {
+                const res = await fetch('/api/qa/custom-test', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: text })
+                }).then(r => r.json());
+
+                if (res.success) {
+                    replyDiv.innerText = res.reply;
+                    reasonDiv.innerHTML = res.reasoningSteps.map(s => `<span class="reasoning-pill">${escapeHtml(s)}</span>`).join('');
+                }
+            } catch (err) {
+                replyDiv.innerText = 'حدث خطأ: ' + err.message;
+            }
+        }
+
+        function exportReport() {
+            const report = {
+                timestamp: new Date().toISOString(),
+                stats: {
+                    total: allCases.length,
+                    executed: Object.keys(executionResults).length,
+                    passed: Object.values(executionResults).filter(r => r.passed).length,
+                    failed: Object.values(executionResults).filter(r => !r.passed).length
+                },
+                results: executionResults
+            };
+
+            document.getElementById('jsonContent').innerText = JSON.stringify(report, null, 2);
+            document.getElementById('jsonModal').style.display = 'flex';
+        }
+
+        function closeModal() {
+            document.getElementById('jsonModal').style.display = 'none';
+        }
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+
+        window.onload = init;
+    </script>
+</body>
+</html>
