@@ -1,9 +1,0 @@
-name = "clinc-ai-assistnant-project"
-compatibility_date = "2026-03-01"
-
-[build]
-command = "npm --prefix frontend install && npm --prefix frontend run build"
-
-[assets]
-directory = "./frontend/dist"
-not_found_handling = "single-page-application"
