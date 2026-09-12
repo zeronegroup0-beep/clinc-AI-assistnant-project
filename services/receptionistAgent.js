@@ -582,7 +582,24 @@ function isGibberish(text) {
 }
 
 /**
+ * Detect emergency and critical safety keywords in message (Module 1)
+ */
+function isEmergencyMessage(text) {
+    if (!text) return false;
+    const clean = text.toLowerCase()
+        .replace(/[إأآ]/g, 'ا')
+        .replace(/ة/g, 'ه');
+    const emergencyKeywords = [
+        'نزيف', 'الم لا يطاق', 'طوارئ', 'طوارىء', 'حاله حرجه',
+        'مش قادر استنى', 'مش قادر استنا', 'مش قادره استنى', 'مش قادره استنا',
+        'اغماء', 'كسر'
+    ];
+    return emergencyKeywords.some(kw => clean.includes(kw));
+}
+
+/**
  * Extract and validate Egyptian phone number
+ * Strict regex: ^01[0-9]{9}$ (11 digits starting with 01)
  */
 function analyzePhoneNumber(text) {
     if (!text) return { hasAttempt: false, isValid: false, phone: null };
@@ -595,14 +612,18 @@ function analyzePhoneNumber(text) {
     }
 
     const raw = digitMatch[0].replace(/[\s-]/g, '');
-    const validMatch = raw.match(/^(?:\+?20|0020)?0?(1[0125]\d{8})$/);
+    let cleanNumber = raw;
+    if (cleanNumber.startsWith('+20')) cleanNumber = '0' + cleanNumber.substring(3);
+    else if (cleanNumber.startsWith('0020')) cleanNumber = '0' + cleanNumber.substring(4);
+    else if (cleanNumber.startsWith('20') && cleanNumber.length === 12) cleanNumber = '0' + cleanNumber.substring(2);
 
-    if (validMatch && validMatch[1]) {
-        const standardPhone = '0' + validMatch[1];
+    const isValid = /^01[0-9]{9}$/.test(cleanNumber);
+
+    if (isValid) {
         return {
             hasAttempt: true,
             isValid: true,
-            phone: standardPhone,
+            phone: cleanNumber,
             raw
         };
     }
@@ -712,6 +733,26 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
     let state = { ...sessionData };
 
     // -------------------------------------------------------------
+    // MODULE 1: EMERGENCY & CRITICAL SAFETY INTERCEPTOR
+    // -------------------------------------------------------------
+    if (isEmergencyMessage(rawText) || isEmergencyMessage(normalizedText)) {
+        delete state.bookingDraft;
+        delete state.pendingBooking;
+        delete state.suggestedAlternativeTime;
+        delete state.awaitingPhone;
+        delete state.awaitingName;
+        delete state.awaitingWaitlist;
+        delete state.waitlistSlot;
+        state.isEmergency = true;
+        reasoningSteps.push('تفعيل معترض الطوارئ والحالات الحرجة فوراً ووقف الحجز وتوجيه المريض لأقرب قسم طوارئ');
+        return {
+            reply: 'يا فندم سلامتك ألف سلامة! الحالات الحادّة والطارئة بتتطلب توجه فوراً لأقرب قسم طوارئ أو مستشفى. يرجى عدم الانتظار للحجز العادي والتوجه فوراً لأقرب مركز طبي.',
+            reasoningSteps,
+            state
+        };
+    }
+
+    // -------------------------------------------------------------
     // DYNAMIC GENDER & PRONOUN AGREEMENT TRACKING
     // -------------------------------------------------------------
     state.gender = detectGender({
@@ -764,8 +805,22 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
 
     // Standalone Name Extraction (AWAITING_NAME State)
     if (state.awaitingName) {
-        const refusalPhrases = ['مش هقول', 'مش عاوز اقول', 'مش عايز اقول', 'مش هقولك', 'بعدين', 'مش لازم', 'مش دلوقتي', 'لا', 'مش حابب', 'مش حابة', 'سري', 'خاص'];
         const cleanNoPunct = normalizedText.replace(/[؟?.,!]/g, '').trim();
+
+        // Intercept polite greetings while awaiting name (Module 2)
+        const greetingPhrases = [
+            'الحمد لله', 'الحمدلله', 'اخبارك ايه', 'أخبارك إيه', 'اخبارك', 'أخبارك',
+            'ازيك', 'إزيك', 'تمام', 'عامل ايه', 'عامله ايه', 'كويس', 'كويسة', 'بخير', 'فل', 'ورد',
+            'مساء الخير', 'صباح الخير', 'اهلا', 'أهلا', 'أهلاً', 'مرحبا', 'مرحباً', 'سلام عليكم', 'السلام عليكم', 'الو', 'ألو'
+        ];
+        const isGreetingOnly = greetingPhrases.some(p => cleanNoPunct === p || cleanNoPunct.startsWith(p));
+        if (isGreetingOnly) {
+            reasoningSteps.push('المريض أرسل تحية أثناء انتظار الاسم: الرد بلباقة وإعادة طلب الاسم دون اعتباره اسماً');
+            const reply = `الحمد لله تمام وبخير يا فندم! يشرفني معرفة اسم حضرتك الكريم؟`;
+            return { reply, reasoningSteps, state };
+        }
+
+        const refusalPhrases = ['مش هقول', 'مش عاوز اقول', 'مش عايز اقول', 'مش هقولك', 'بعدين', 'مش لازم', 'مش دلوقتي', 'لا', 'مش حابب', 'مش حابة', 'سري', 'خاص'];
         const isRefusal = refusalPhrases.some(p => cleanNoPunct === p || cleanNoPunct.startsWith(p));
 
         if (isRefusal) {
@@ -815,7 +870,7 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
                         requestedTime: state.waitlistSlot?.time || '4:30 مساءً',
                         notes: 'طلب إخطار فوري عند توفر الموعد'
                     });
-                    const reply = `تمام يا ${honorific}، تسجل طلبك في قائمة الانتظار الخاصة بدكتور ${docName}، وأول ما يفضى ميعاد هنتواصل مع حضرتك فوراً. أقدر أساعدك في أي استفسار تاني؟`;
+                    const reply = `تمام يا ${honorific}، تم تسجل طلبك في قائمة الانتظار لـ ${docName}. أول ما يفضى ميعاد هنتواصل مع حضرتك فوراً على الواتساب.`;
                     delete state.bookingDraft;
                     delete state.waitlistSlot;
                     delete state.awaitingWaitlist;
@@ -823,7 +878,7 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
                     return { reply, reasoningSteps, state, card: { type: 'waitlist_confirmed', waitlistId: waitlistResult.waitlistId, patientName: state.patientName, doctor: docName, phone: state.patientPhone } };
                 }
                 state.awaitingPhone = true;
-                const reply = `تمام يا ${honorific}، يشرفني بس رقم الواتساب عشان نسجل طلبك في قائمة الانتظار الخاصة بدكتور ${docName}، وأول ما يفضى ميعاد نتواصل معاك فوراً.`;
+                const reply = `تمام يا ${honorific}، يشرفني بس رقم الواتساب عشان نسجل طلبك في قائمة الانتظار لـ ${docName}، وأول ما يفضى ميعاد هنتواصل مع حضرتك فوراً على الواتساب.`;
                 return { reply, reasoningSteps, state };
             }
 
@@ -880,7 +935,7 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
         state.awaitingPhone = true;
 
         return {
-            reply: 'عفواً، الرقم اللي دخلته غير صحيح، يرجى كتابة رقم واتساب صحيح (مثال: 01012345678).',
+            reply: 'عذراً، رقم المحمول المكتوب غير مكتمل. يرجى كتابة رقم الموبايل المصري المكون من 11 رقم (مثال: 01012345678)',
             reasoningSteps,
             state
         };
@@ -891,7 +946,7 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
         state.awaitingPhone = true;
 
         return {
-            reply: 'عفواً، الرقم اللي دخلته غير صحيح، يرجى كتابة رقم واتساب صحيح (مثال: 01012345678).',
+            reply: 'عذراً، رقم المحمول المكتوب غير مكتمل. يرجى كتابة رقم الموبايل المصري المكون من 11 رقم (مثال: 01012345678)',
             reasoningSteps,
             state
         };
@@ -988,7 +1043,7 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
                     notes: 'طلب إخطار فوري عند توفر الموعد'
                 });
 
-                const reply = `تمام يا ${userTitle}، تسجل طلبك في قائمة الانتظار الخاصة بدكتور ${docName}، وأول ما يفضى ميعاد هنتواصل مع حضرتك فوراً. أقدر أساعدك في أي استفسار تاني؟`;
+                const reply = `تمام يا ${userTitle}، تم تسجل طلبك في قائمة الانتظار لـ ${docName}. أول ما يفضى ميعاد هنتواصل مع حضرتك فوراً على الواتساب.`;
 
                 const card = {
                     type: 'waitlist_confirmed',
@@ -1068,7 +1123,7 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
     const lowerText = normalizedText.toLowerCase();
     if (lowerText.includes('عنوان') || lowerText.includes('مكان العيادة') || lowerText.includes('مكانكم') || lowerText.includes('العيادة فين') || lowerText.includes('فين العيادة')) {
         reasoningSteps.push('استرجاع عنوان العيادة مع الحفاظ على سياق الحوار دون إعادة سرد المواعيد كاملة');
-        let locReply = 'عنوان عيادتنا: 15 شارع التحرير، الدقي، الجيزة (بجوار محطة مترو الدقي). مواعيد العمل يومياً من 1:00 ظهراً إلى 10:00 مساءً ما عدا الجمعة.';
+        let locReply = 'عنوان عيادتنا: 15 شارع التحرير، الدقي، الجيزة (بجوار محطة مترو الدقي). ولدينا فروع في دمنهور (شارع عبد السلام الشاذلي) والإسكندرية (طريق الجيش، ستانلي). مواعيد العمل يومياً من 1:00 ظهراً إلى 10:00 مساءً ما عدا الجمعة.';
         if (state.bookingDraft && state.bookingDraft.date && state.bookingDraft.time) {
             locReply += `\n\nتحب${gp.isFemale ? 'ي' : ''} نكمل حجز ميعاد حضرتك ${state.bookingDraft.date} الساعة ${state.bookingDraft.time}؟`;
         } else if (state.bookingDraft && state.bookingDraft.date) {
@@ -1078,6 +1133,70 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
         }
         return {
             reply: locReply,
+            reasoningSteps,
+            state
+        };
+    }
+
+    // Insurance Inquiry (Knowledge Base Tool Lookup with context retention - Module 6)
+    if (lowerText.includes('تأمين') || lowerText.includes('تامين') || lowerText.includes('تأمينات') ||
+        lowerText.includes('كارت التأمين') || lowerText.includes('كارنيه التأمين') || lowerText.includes('متعاقدين') ||
+        lowerText.includes('بوبا') || lowerText.includes('اكسا') || lowerText.includes('ميدنت') || lowerText.includes('bupa') || lowerText.includes('axa')) {
+        reasoningSteps.push('استرجاع شبكة شركات التأمين الطبي المعتمدة مع الحفاظ على سياق الحوار ومسودة الحجز');
+        let insReply = 'عيادتنا متعاقدة مع كبرى شركات التأمين الطبي (مثل: بوبا Bupa، أكسا AXA، ميدنت MedNet، جلوب ميد GlobeMed، كير بلس Care Plus، ونقابات المهندسين والتجاريين والأطباء). بنسبة تغطية بتوصل لـ 100% حسب فئة كارت التأمين الخاص بحضرتك.';
+        if (state.bookingDraft && state.bookingDraft.date && state.bookingDraft.time) {
+            insReply += `\n\nتحب${gp.isFemale ? 'ي' : ''} نكمل حجز ميعاد حضرتك ${state.bookingDraft.date} الساعة ${state.bookingDraft.time}؟`;
+        } else if (state.bookingDraft && state.bookingDraft.date) {
+            insReply += `\n\nتحب${gp.isFemale ? 'ي' : ''} نكمل حجز ميعاد حضرتك ${state.bookingDraft.date}؟`;
+        } else {
+            insReply += `\n\nتحب${gp.isFemale ? 'ي' : ''} حضرتك تحجز${gp.isFemale ? 'ي' : ''} موعد كشف؟`;
+        }
+        return {
+            reply: insReply,
+            reasoningSteps,
+            state
+        };
+    }
+
+    // Multi-Branch Handling & Switching (Module 6)
+    const isAlexBranch = lowerText.includes('إسكندرية') || lowerText.includes('اسكندرية') || lowerText.includes('إسكندريه') || lowerText.includes('اسكندريه');
+    const isDamanhourBranch = lowerText.includes('دمنهور');
+
+    if (isAlexBranch && (isAvailabilityInquiry(lowerText) || lowerText.includes('مواعيد') || lowerText.includes('فرع'))) {
+        state.branch_id = 'alex';
+        state.branch_name = 'الإسكندرية';
+        reasoningSteps.push('استرجاع مواعيد فرع الإسكندرية وتحديث فرع الجلسة');
+        let branchReply = 'مواعيد فرع الإسكندرية: د. حسام فتحي (الباطنة والقلب)، د. مريم نبيل (العيون)، ود. أحمد شريف (الأسنان). تحب أحجز لحضرتك ميعاد في فرع الإسكندرية؟';
+        return { reply: branchReply, reasoningSteps, state };
+    }
+
+    if (isDamanhourBranch) {
+        state.branch_id = 'damanhour';
+        state.branch_name = 'دمنهور';
+        reasoningSteps.push('تحديد أو التبديل إلى فرع دمنهور');
+        if (lowerText.includes('اكمل في دمنهور') || lowerText.includes('أكمل في دمنهور') || lowerText.includes('نكمل في دمنهور') || lowerText.includes('طيب اكمل')) {
+            const doc = state.bookingDraft?.doctor || 'د. أحمد شريف';
+            let reply = `تمام يا ${honorific || 'فندم'}، هنكمل الحجز في فرع دمنهور مع ${doc}. `;
+            if (state.bookingDraft?.date && state.bookingDraft?.time) {
+                reply += `ميعاد حضرتك ${state.bookingDraft.date} الساعة ${state.bookingDraft.time}. ممكن رقم الواتساب والاسم الكريم للتأكيد؟`;
+                state.awaitingPhone = true;
+                state.awaitingName = !state.patientName;
+            } else if (state.bookingDraft?.date) {
+                reply += `تحب${gp.isFemale ? 'ي' : ''} ميعاد الساعة كام فيهم؟`;
+            } else {
+                reply += `تحب${gp.isFemale ? 'ي' : ''} تحجز${gp.isFemale ? 'ي' : ''} يوم إيه؟`;
+            }
+            return { reply, reasoningSteps, state };
+        }
+    }
+
+    // Branch inquiry or Ambiguous Branch Selection
+    const isAmbiguousBranchPrompt = (lowerText.includes('فروع') || lowerText.includes('فروعكم') || lowerText.includes('عندكم فروع')) ||
+                                    ((lowerText.includes('احجز') || lowerText.includes('حجز')) && !state.branch_id && !state.bookingDraft?.doctor && (lowerText.includes('فرع') || lowerText.includes('انهي فرع') || lowerText.includes('أنهي فرع')));
+    if (isAmbiguousBranchPrompt) {
+        reasoningSteps.push('سؤال المريض عن الفرع المفضل بين دمنهور والإسكندرية');
+        return {
+            reply: 'عيادتنا ليها فرعين: فرع دمنهور وفرع الإسكندرية. تحب تحجز في فرع دمنهور ولا فرع الإسكندرية؟',
             reasoningSteps,
             state
         };
@@ -1264,12 +1383,14 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
         }
 
         if (workingDayCheck.isTodayFinished) {
-            reasoningSteps.push(`مواعيد اليوم انتهت بالكامل: عرض أول يوم عمل قادم (${workingDayCheck.nextWorkingDay?.label}) مع منع القفز الصامت للتواريخ`);
             delete state.bookingDraft.date;
             delete state.bookingDraft.dateStr;
-            const nextDayLabel = workingDayCheck.nextWorkingDay ? workingDayCheck.nextWorkingDay.label : 'يوم العمل القادم';
+            const nextWork = workingDayCheck.nextWorkingDay;
+            const dayName = nextWork ? nextWork.dayNameAr : 'العمل القادم';
+            const dateStr = nextWork ? nextWork.dateStr : '';
+            reasoningSteps.push(`مواعيد اليوم انتهت بالكامل: عرض أقرب ميعاد متاح للدكتور في أول يوم عمل قادم (يوم ${dayName} الموافق ${dateStr}) دون قفز صامت`);
             return {
-                reply: `مواعيد النهاردة خلصت أو انتهت، هل ${gp.toheb} أحجز ${gp.lak} في أول يوم عمل قادم وهو ${nextDayLabel}؟`,
+                reply: `مواعيد النهاردة انتهت بالكامل يا فندم. أقرب ميعاد متاح للدكتور في أول يوم عمل قادم هو يوم ${dayName} الموافق ${dateStr}.. تحب${gp.isFemale ? 'ي' : ''} أحجز لك${gp.isFemale ? 'ِ' : ''} فيه؟`,
                 reasoningSteps,
                 state
             };
@@ -1431,12 +1552,12 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
 
         // 3.0 Today finished or past slot
         if (availCheck.isPastSlot || availCheck.isTodayFinished) {
-            const nextDayLabel = availCheck.nextWorkingDay ? availCheck.nextWorkingDay.label : 'يوم العمل القادم';
             delete state.bookingDraft.time;
-            reasoningSteps.push(`الموعد المطلوب اليوم انتهى: تقديم إشعار واضح وعرض أول يوم عمل قادم (${nextDayLabel}) دون قفز صامت`);
-            const promptMsg = availCheck.isPastSlot
-                ? `ميعاد الساعة ${activeTime} النهاردة انتهى ومواعيد النهاردة خلصت، هل ${gp.toheb} أحجز ${gp.lak} في أول يوم عمل قادم وهو ${nextDayLabel}؟`
-                : `مواعيد النهاردة خلصت أو انتهت، هل ${gp.toheb} أحجز ${gp.lak} في أول يوم عمل قادم وهو ${nextDayLabel}؟`;
+            const nextWork = availCheck.nextWorkingDay;
+            const dayName = nextWork ? nextWork.dayNameAr : 'العمل القادم';
+            const dateStr = nextWork ? nextWork.dateStr : '';
+            reasoningSteps.push(`الموعد المطلوب اليوم انتهى: تقديم إشعار واضح وعرض أقرب ميعاد متاح للدكتور في أول يوم عمل قادم (يوم ${dayName} الموافق ${dateStr}) دون قفز صامت`);
+            const promptMsg = `مواعيد النهاردة انتهت بالكامل يا فندم. أقرب ميعاد متاح للدكتور في أول يوم عمل قادم هو يوم ${dayName} الموافق ${dateStr}.. تحب${gp.isFemale ? 'ي' : ''} أحجز لك${gp.isFemale ? 'ِ' : ''} فيه؟`;
             return {
                 reply: promptMsg,
                 reasoningSteps,
@@ -1531,12 +1652,14 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
         });
 
         if (availCheck.isTodayFinished) {
-            const nextDayLabel = availCheck.nextWorkingDay ? availCheck.nextWorkingDay.label : 'يوم العمل القادم';
             delete state.bookingDraft.date;
             delete state.bookingDraft.dateStr;
-            reasoningSteps.push(`مواعيد اليوم انتهت بالكامل: عرض أول يوم عمل قادم (${nextDayLabel}) دون قفز صامت`);
+            const nextWork = availCheck.nextWorkingDay;
+            const dayName = nextWork ? nextWork.dayNameAr : 'العمل القادم';
+            const dateStr = nextWork ? nextWork.dateStr : '';
+            reasoningSteps.push(`مواعيد اليوم انتهت بالكامل: عرض أقرب ميعاد متاح للدكتور في أول يوم عمل قادم (يوم ${dayName} الموافق ${dateStr}) دون قفز صامت`);
             return {
-                reply: `مواعيد النهاردة خلصت أو انتهت، هل ${gp.toheb} أحجز ${gp.lak} في أول يوم عمل قادم وهو ${nextDayLabel}؟`,
+                reply: `مواعيد النهاردة انتهت بالكامل يا فندم. أقرب ميعاد متاح للدكتور في أول يوم عمل قادم هو يوم ${dayName} الموافق ${dateStr}.. تحب${gp.isFemale ? 'ي' : ''} أحجز لك${gp.isFemale ? 'ِ' : ''} فيه؟`,
                 reasoningSteps,
                 state
             };
@@ -1623,5 +1746,6 @@ module.exports = {
     isWaitlistIntent,
     isAskingWhatDayTodayIs,
     detectChainedRelativeDate,
-    isGibberish
+    isGibberish,
+    isEmergencyMessage
 };

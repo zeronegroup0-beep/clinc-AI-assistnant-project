@@ -645,6 +645,167 @@ const QA_TEST_SUITE = [
                 }
             }
         ]
+    },
+    {
+        id: 'tc_33_emergency_interceptor',
+        title: 'Emergency Interceptor: Critical Case Safety Override ("عندي نزيف حاد وألم لا يطاق")',
+        category: 'emergency',
+        persona: 'مريض يعاني من نزيف حاد وألم لا يطاق يستدعي الطوارئ الفورية',
+        description: 'تفعيل معترض الطوارئ فوراً ووقف الحجز وإلغاء المسودات وتوجيه المريض لأقرب قسم طوارئ بالرسالة الإلزامية',
+        turns: [
+            {
+                userMessage: 'عندي نزيف حاد في أسناني وألم لا يطاق مش قادر أستنى',
+                assertions: {
+                    mustInclude: [
+                        'يا فندم سلامتك ألف سلامة!',
+                        'الحالات الحادّة والطارئة بتتطلب توجه فوراً لأقرب قسم طوارئ أو مستشفى',
+                        'يرجى عدم الانتظار للحجز العادي والتوجه فوراً لأقرب مركز طبي'
+                    ],
+                    mustNotInclude: ['المواعيد المتاحة', 'تحب أحجز'],
+                    stateCheck: (state) => state.isEmergency === true && !state.bookingDraft,
+                    description: 'وقف عملية الحجز فوراً وتوجيه المريض لأقرب قسم طوارئ'
+                }
+            }
+        ]
+    },
+    {
+        id: 'tc_34_greeting_guard_in_awaiting_name',
+        title: 'Entity Guard: Greeting Interception in AWAITING_NAME State ("الحمد لله أخبارك إيه")',
+        category: 'name_guard',
+        persona: 'مريض يُطلب منه اسمه فيرد بتحية حال عادية',
+        description: 'الرد بأدب دون اعتبار التحية اسماً وإعادة طلب الاسم ثم استخراج الاسم الحقيقي بدقة',
+        turns: [
+            {
+                userMessage: 'مساء الخير',
+                assertions: {
+                    mustInclude: ['اسم حضرتك'],
+                    stateCheck: (state) => state.awaitingName === true
+                }
+            },
+            {
+                userMessage: 'الحمد لله أخبارك إيه',
+                assertions: {
+                    mustInclude: ['الحمد لله تمام وبخير يا فندم!', 'يشرفني معرفة اسم حضرتك الكريم؟'],
+                    mustNotInclude: ['أستاذ الحمد لله', 'أستاذة الحمد لله'],
+                    stateCheck: (state) => state.awaitingName === true && !state.patientName,
+                    description: 'الرد بلباقة دون حفظ التحية كاسم'
+                }
+            },
+            {
+                userMessage: 'علي حسام',
+                assertions: {
+                    mustInclude: ['أستاذ علي حسام', 'إزاي أقدر أساعدك النهاردة؟'],
+                    stateCheck: (state) => state.userName === 'علي حسام' && !state.awaitingName,
+                    description: 'التقاط الاسم الحقيقي المكون من كلمتين وحفظه'
+                }
+            }
+        ]
+    },
+    {
+        id: 'tc_35_strict_11_digit_phone_validation',
+        title: 'Input Validation: Incomplete Mobile Number Guard ("0101234")',
+        category: 'input_validation',
+        persona: 'مريض يدخل 7 أرقام بدلاً من 11 رقماً للهاتف المحمول المصري',
+        description: 'رفض الرقم غير المكتمل بالرسالة الإلزامية ومنع الحفظ ثم قبول الرقم بعد تصحيحه',
+        turns: [
+            {
+                userMessage: 'عايز أحجز كشف أسنان يوم الإثنين الساعة 5:30 مساءً باسم محمود',
+                assertions: {
+                    mustInclude: ['رقم الواتساب'],
+                    stateCheck: (state) => Boolean(state.awaitingPhone)
+                }
+            },
+            {
+                userMessage: '0101234',
+                assertions: {
+                    mustInclude: ['عذراً، رقم المحمول المكتوب غير مكتمل. يرجى كتابة رقم الموبايل المصري المكون من 11 رقم (مثال: 01012345678)'],
+                    stateCheck: (state) => !state.patientPhone && state.awaitingPhone === true,
+                    description: 'رفض الرقم غير المكتمل برسالة التحقق الإلزامية'
+                }
+            },
+            {
+                userMessage: '01012345678',
+                assertions: {
+                    mustInclude: ['تم تأكيد حجز حضرتك', '01012345678'],
+                    stateCheck: (state) => state.patientPhone === '01012345678',
+                    description: 'تأكيد الحجز بنجاح بعد إدخال الرقم الصحيح المكون من 11 رقماً'
+                }
+            }
+        ]
+    },
+    {
+        id: 'tc_36_dynamic_gender_fadiltak_marker',
+        title: 'Gender Alignment: Unisex Name ("رضا") with Masculine Clue ("فاضيلك")',
+        category: 'name_guard',
+        persona: 'مريض اسمه رضا يستخدم تعبير التذكير "فاضيلك"',
+        description: 'قفل جنس المريض كمذكر ومخاطبته بصيغة تحب المذكر وتجنب التأنيث',
+        turns: [
+            {
+                userMessage: 'أنا رضا وفاضيلك يوم السبت',
+                assertions: {
+                    mustInclude: ['تحب'],
+                    mustNotInclude: ['تحبي', 'أستاذة رضا'],
+                    stateCheck: (state) => state.userGender === 'male' && state.gender === 'male',
+                    description: 'التعرف على مؤشر التذكير فاضيلك وقفل الجنس كمذكر'
+                }
+            }
+        ]
+    },
+    {
+        id: 'tc_37_multi_branch_selection_and_switch',
+        title: 'Multi-Branch Engine: Branch Disambiguation & Switching (Damanhour vs Alex)',
+        category: 'branch_logic',
+        persona: 'مريض يستفسر عن الفروع ثم يبدل بين فرع دمنهور وفرع الإسكندرية',
+        description: 'التوجيه الدقيق بين فرع دمنهور وفرع الإسكندرية ودعم التبديل السلس دون فقدان السياق',
+        turns: [
+            {
+                userMessage: 'عندكم فروع ايه؟',
+                assertions: {
+                    mustInclude: ['فرع دمنهور', 'فرع الإسكندرية', 'تحب تحجز في فرع دمنهور ولا فرع الإسكندرية؟'],
+                    description: 'عرض فروع العيادة وسؤال المريض عن الفرع المفضل'
+                }
+            },
+            {
+                userMessage: 'ممكن أعرف مواعيد فرع الإسكندرية؟',
+                assertions: {
+                    mustInclude: ['مواعيد فرع الإسكندرية', 'د. حسام فتحي', 'د. مريم نبيل', 'د. أحمد شريف'],
+                    stateCheck: (state) => state.branch_id === 'alex',
+                    description: 'استرجاع مواعيد أطباء فرع الإسكندرية حصراً'
+                }
+            },
+            {
+                userMessage: 'طيب أكمل في دمنهور',
+                assertions: {
+                    mustInclude: ['فرع دمنهور'],
+                    stateCheck: (state) => state.branch_id === 'damanhour',
+                    description: 'التبديل إلى فرع دمنهور واستكمال الحوار'
+                }
+            }
+        ]
+    },
+    {
+        id: 'tc_38_knowledge_base_insurance_with_booking_retention',
+        title: 'Knowledge Base: Medical Insurance Inquiry with Context Retention',
+        category: 'knowledge_base',
+        persona: 'مريض يستفسر عن شركات التأمين في منتصف ترتيب الحجز',
+        description: 'الرد بقائمة شركات التأمين المعتمدة والاحتفاظ بمسودة الحجز والعودة لاستكمالها',
+        turns: [
+            {
+                userMessage: 'عايز كشف مع دكتور أحمد يوم الأربعاء الساعة 6:00 مساءً',
+                assertions: {
+                    mustInclude: ['6:00', 'الواتساب'],
+                    stateCheck: (state) => state.bookingDraft && state.bookingDraft.date
+                }
+            },
+            {
+                userMessage: 'هل متعاقدين مع شركات التأمين زي بوبا أو أكسا؟',
+                assertions: {
+                    mustInclude: ['بوبا Bupa', 'أكسا AXA', 'ميدنت MedNet', 'نكمل حجز ميعاد حضرتك'],
+                    stateCheck: (state) => state.bookingDraft && state.bookingDraft.date && state.bookingDraft.time,
+                    description: 'الرد بشبكة التأمين والاحتفاظ بالموعد المختار دون مسحه'
+                }
+            }
+        ]
     }
 ];
 

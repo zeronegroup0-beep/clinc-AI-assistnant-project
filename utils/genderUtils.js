@@ -97,6 +97,7 @@ function detectGender({ text = '', name = null, currentGender = null }) {
         cleanText.includes('عايزه') || cleanText.includes('عاوزه') || 
         cleanText.includes('محتاجة') || cleanText.includes('محتاجه') || 
         cleanText.includes('فاضية') || cleanText.includes('فاضيه') || 
+        cleanText.includes('فاضيتلك') || cleanText.includes('فاضيالك') ||
         cleanText.includes('ممكن أجيي') || cleanText.includes('ممكن اجيي') || 
         cleanText.includes('حابة') || cleanText.includes('حابه') || 
         cleanText.includes('تعبانة') || cleanText.includes('تعبانه') || 
@@ -112,12 +113,12 @@ function detectGender({ text = '', name = null, currentGender = null }) {
     const hasMasculineMarker = (
         cleanText.includes('عايز') || cleanText.includes('عاوز') || 
         cleanText.includes('عيز') || cleanText.includes('محتاج') || 
-        cleanText.includes('فاضي') || cleanText.includes('ممكن أجي') || 
-        cleanText.includes('ممكن اجي') || cleanText.includes('حابب') || 
-        cleanText.includes('تعبان') || cleanText.includes('مريض') || 
-        cleanText.includes('أستاذ') || cleanText.includes('استاذ') || 
-        cleanText.includes('باشمهندس') || cleanText.includes('مهندس') || 
-        cleanText.includes('دكتور')
+        cleanText.includes('فاضي') || cleanText.includes('فاضيلك') ||
+        cleanText.includes('ممكن أجي') || cleanText.includes('ممكن اجي') || 
+        cleanText.includes('حابب') || cleanText.includes('تعبان') || 
+        cleanText.includes('مريض') || cleanText.includes('أستاذ') || 
+        cleanText.includes('استاذ') || cleanText.includes('باشمهندس') || 
+        cleanText.includes('مهندس') || cleanText.includes('دكتور')
     );
     if (hasMasculineMarker) {
         return 'male';

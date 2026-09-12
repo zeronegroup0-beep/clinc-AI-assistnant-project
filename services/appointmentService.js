@@ -7,12 +7,31 @@ const Waitlist = require('../models/Waitlist');
 const { encrypt, decrypt } = require('../utils/encryption');
 
 // Doctors directory
+// Multi-Branch Clinic Configurations
+const BRANCHES = {
+    'damanhour': {
+        id: 'damanhour',
+        nameAr: 'فرع دمنهور',
+        city: 'دمنهور',
+        addressAr: 'شارع عبد السلام الشاذلي، دمنهور، البحيرة',
+        doctorIds: ['dr_ahmed', 'dr_sara']
+    },
+    'alex': {
+        id: 'alex',
+        nameAr: 'فرع الإسكندرية',
+        city: 'الإسكندرية',
+        addressAr: 'طريق الجيش، ستانلي، الإسكندرية',
+        doctorIds: ['dr_hossam', 'dr_mariam', 'dr_ahmed']
+    }
+};
+
 // Doctors directory and detailed schedule configuration
 const DOCTORS_SCHEDULE = {
     'dr_ahmed': {
         id: 'dr_ahmed',
         name: 'د. أحمد شريف',
         specialty: 'استشاري طب وجراحة الأسنان',
+        branches: ['damanhour', 'alex'],
         workingDayIndices: [6, 1, 3], // Saturday (6), Monday (1), Wednesday (3)
         workingDaysAr: 'السبت، الإثنين، والأربعاء',
         hoursAr: '2:00 م إلى 9:00 م',
@@ -26,6 +45,7 @@ const DOCTORS_SCHEDULE = {
         id: 'dr_sara',
         name: 'د. سارة محمود',
         specialty: 'أخصائية الجلدية والتجميل والليزر',
+        branches: ['damanhour'],
         workingDayIndices: [0, 2, 4], // Sunday (0), Tuesday (2), Thursday (4)
         workingDaysAr: 'الأحد، الثلاثاء، والخميس',
         hoursAr: '1:00 م إلى 8:00 م',
@@ -39,6 +59,7 @@ const DOCTORS_SCHEDULE = {
         id: 'dr_hossam',
         name: 'د. حسام فتحي',
         specialty: 'استشاري الأمراض الباطنة والقلب',
+        branches: ['alex'],
         workingDayIndices: [6, 0, 1, 2, 3, 4], // Saturday through Thursday (Friday off)
         workingDaysAr: 'السبت إلى الخميس (ما عدا الجمعة)',
         hoursAr: '3:00 م إلى 10:00 م',
@@ -55,6 +76,7 @@ const DOCTORS_SCHEDULE = {
         id: 'dr_mariam',
         name: 'د. مريم نبيل',
         specialty: 'أخصائية طب وجراحة العيون',
+        branches: ['alex'],
         workingDayIndices: [0, 2, 4], // Sunday (0), Tuesday (2), Thursday (4)
         workingDaysAr: 'الأحد، الثلاثاء، والخميس',
         hoursAr: '4:00 م إلى 9:00 م',
@@ -402,7 +424,8 @@ async function checkAvailability({ date, doctor = 'د. أحمد شريف', time,
             const requestedMinutes = timeToMinutes(time);
             if (requestedMinutes !== null && requestedMinutes <= currentMinutes) {
                 const nextWork = getNextWorkingDay(doctorInfo, currentDate);
-                const nextLabel = nextWork ? nextWork.label : 'يوم العمل القادم';
+                const dayName = nextWork ? nextWork.dayNameAr : 'العمل القادم';
+                const dateStr = nextWork ? nextWork.dateStr : '';
                 return {
                     available: false,
                     isToday: true,
@@ -411,7 +434,7 @@ async function checkAvailability({ date, doctor = 'د. أحمد شريف', time,
                     doctor: doctorInfo.name,
                     specialty: doctorInfo.specialty,
                     nextWorkingDay: nextWork,
-                    message: `ميعاد الساعة ${time} النهاردة انتهى ومواعيد النهاردة خلصت، هل تحب أحجز لك في أول يوم عمل قادم وهو ${nextLabel}؟`
+                    message: `مواعيد النهاردة انتهت بالكامل يا فندم. أقرب ميعاد متاح للدكتور في أول يوم عمل قادم هو يوم ${dayName} الموافق ${dateStr}.. تحب أحجز لك فيه؟`
                 };
             }
         }
@@ -425,7 +448,8 @@ async function checkAvailability({ date, doctor = 'د. أحمد شريف', time,
         // If all slots for today have ended or passed:
         if (remainingSlots.length === 0) {
             const nextWork = getNextWorkingDay(doctorInfo, currentDate);
-            const nextLabel = nextWork ? nextWork.label : 'يوم العمل القادم';
+            const dayName = nextWork ? nextWork.dayNameAr : 'العمل القادم';
+            const dateStr = nextWork ? nextWork.dateStr : '';
             return {
                 available: false,
                 isToday: true,
@@ -433,7 +457,7 @@ async function checkAvailability({ date, doctor = 'د. أحمد شريف', time,
                 doctor: doctorInfo.name,
                 specialty: doctorInfo.specialty,
                 nextWorkingDay: nextWork,
-                message: `مواعيد النهاردة خلصت أو انتهت، هل تحب أحجز لك في أول يوم عمل قادم وهو ${nextLabel}؟`
+                message: `مواعيد النهاردة انتهت بالكامل يا فندم. أقرب ميعاد متاح للدكتور في أول يوم عمل قادم هو يوم ${dayName} الموافق ${dateStr}.. تحب أحجز لك فيه؟`
             };
         }
 
@@ -728,5 +752,6 @@ module.exports = {
     getAllAppointments,
     getAllWaitlist,
     getNextWorkingDay,
-    isDateToday
+    isDateToday,
+    BRANCHES
 };
