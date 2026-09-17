@@ -149,6 +149,7 @@ const QA_TEST_SUITE = [
         id: 'tc_09_relative_date_tomorrow_sara',
         title: 'Relative Dates: Dynamic "بكرة" Recognition',
         category: 'relative_dates',
+        mockDate: new Date(2026, 8, 12, 10, 0),
         persona: 'مستخدم يطلب المواعيد بلفظ نسبي "بكرة مع دكتورة سارة"',
         description: 'حساب تاريخ الغد ديناميكياً وتنفيذ أداة المواعيد فوراً دون السؤال "يوم إيه"',
         turns: [
@@ -167,6 +168,7 @@ const QA_TEST_SUITE = [
         id: 'tc_10_elderly_chaining_baadho',
         title: 'Contextual Chaining: "بعده" Following Prior Date',
         category: 'relative_dates',
+        mockDate: new Date(2026, 8, 12, 10, 0),
         persona: 'مريض مسن يستفسر عن اليوم التالي بصيغة "طب بعده؟"',
         description: 'تتبع السلسلة الزمنية والتأكيد بلباقة "قصد حضرتك يوم ... اللي بعد ...؟"',
         turns: [
@@ -261,10 +263,11 @@ const QA_TEST_SUITE = [
             {
                 userMessage: 'عايز أحجز مع دكتور أحمد يوم الإثنين الساعة 4:30 مساءً',
                 assertions: {
-                    mustIncludeAny: ['محجوز', 'بالكامل', 'اعتذر'],
+                    mustIncludeAny: ['محجوز', 'بالكامل', 'اعتذر', 'نعتذر'],
                     mustIncludeAny: ['قائمة الانتظار', 'انتظار'],
+                    mustInclude: ['رقم الواتساب'],
                     stateCheck: (state) => Boolean(state.awaitingWaitlist || state.waitlistSlot),
-                    description: 'تنبيه المريض بالحجز المسبق وعرض قائمة الانتظار'
+                    description: 'تنبيه المريض بالحجز المسبق وعرض قائمة الانتظار مع استخدام عبارة رقم الواتساب'
                 }
             }
         ]
@@ -285,9 +288,11 @@ const QA_TEST_SUITE = [
             {
                 userMessage: 'سجلني في قائمة الانتظار ورقمي 01011223344',
                 assertions: {
-                    mustIncludeAny: ['سجلت', 'قائمة الانتظار', 'هنتواصل'],
+                    mustIncludeAny: ['تسجيل', 'سجلت', 'قائمة الانتظار', 'هنتواصل'],
+                    mustInclude: ['01011223344'],
+                    stateCheck: (state) => state.sessionState === 'WAITLIST_CONFIRMATION',
                     mustTriggerTool: 'add_to_waitlist',
-                    description: 'إضافة المريض لقائمة الانتظار بنجاح'
+                    description: 'إضافة المريض لقائمة الانتظار وتأكيد رقم الهاتف وحالة WAITLIST_CONFIRMATION'
                 }
             }
         ]
@@ -535,19 +540,21 @@ const QA_TEST_SUITE = [
             {
                 userMessage: 'لا سجل رقمي أفضل',
                 assertions: {
-                    mustIncludeAny: ['رقم الواتساب', 'الواتساب', 'نسجلك'],
+                    mustInclude: ['رقم الواتساب'],
+                    mustIncludeAny: ['نسجلك', 'الانتظار'],
                     mustNotInclude: ['• 5:30 مساءً', 'المواعيد المتاحة'],
-                    stateCheck: (state) => Boolean(state.awaitingWaitlist && state.awaitingPhone),
-                    description: 'طلب رقم الواتساب لقائمة الانتظار دون إعادة عرض المواعيد'
+                    stateCheck: (state) => Boolean(state.awaitingWaitlist && state.awaitingPhone) && state.sessionState === 'WAITLIST_AWAITING_PHONE',
+                    description: 'طلب رقم الواتساب لقائمة الانتظار دون إعادة عرض المواعيد وتعيين حالة WAITLIST_AWAITING_PHONE'
                 }
             },
             {
                 userMessage: '01011223344',
                 assertions: {
-                    mustInclude: ['تسجل طلبك في قائمة الانتظار'],
+                    mustInclude: ['تسجيل طلبك بالرقم (01011223344) في قائمة الانتظار'],
                     mustIncludeAny: ['د. أحمد شريف', 'هنتواصل'],
+                    stateCheck: (state) => state.sessionState === 'WAITLIST_CONFIRMATION',
                     mustTriggerTool: 'add_to_waitlist',
-                    description: 'تأكيد التسجيل في قائمة الانتظار بنجاح'
+                    description: 'تأكيد التسجيل في قائمة الانتظار بنجاح وتأكيد رقم الهاتف وحالة WAITLIST_CONFIRMATION'
                 }
             }
         ]

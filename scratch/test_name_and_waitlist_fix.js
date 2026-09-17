@@ -138,10 +138,11 @@ async function runTests() {
         sessionData: w1.state,
         currentDate: mockDate
     });
-    assert(w2.reply.includes('تسجل طلبك في قائمة الانتظار'), 'Reply has exact confirmation: تسجل طلبك في قائمة الانتظار');
+    assert(w2.reply.includes('تسجيل طلبك بالرقم (01011223344) في قائمة الانتظار'), 'Reply has exact confirmation with phone echo');
+    assert(w2.state.sessionState === 'WAITLIST_CONFIRMATION', 'Transitions to WAITLIST_CONFIRMATION');
     assert(w2.reply.includes('دكتور د. أحمد شريف') || w2.reply.includes('د. أحمد شريف'), 'Reply mentions doctor name');
     assert(w2.reply.includes('أستاذ محمود'), 'Reply addresses user as أستاذ محمود');
-    assert(w2.reply.includes('أقدر أساعدك في أي استفسار تاني'), 'Reply ends with: أقدر أساعدك في أي استفسار تاني؟');
+    assert(w2.reply.includes('أول ما يفضى ميعاد هنتواصل مع حضرتك فوراً على الواتساب'), 'Polite wrap-up offered');
     assert(!w2.reply.includes('• 5:30 مساءً'), 'Strictly forbidden from re-displaying time slots');
 
     // ----------------------------------------------------------------
@@ -164,6 +165,7 @@ async function runTests() {
     });
     assert(w4.state.awaitingWaitlist === true, 'Remains in awaitingWaitlist state');
     assert(w4.state.awaitingPhone === true, 'Sets awaitingPhone = true');
+    assert(w4.state.sessionState === 'WAITLIST_AWAITING_PHONE', 'Sets sessionState = WAITLIST_AWAITING_PHONE');
     assert(w4.reply.includes('رقم الواتساب'), 'Prompts for WhatsApp phone number');
     assert(!w4.reply.includes('• 5:30 مساءً'), 'Strictly forbidden from re-displaying doctor time slots');
 
@@ -174,9 +176,10 @@ async function runTests() {
         sessionData: w4.state,
         currentDate: mockDate
     });
-    assert(w5.reply.includes('تسجل طلبك في قائمة الانتظار'), 'Reply confirms waitlist: تسجل طلبك في قائمة الانتظار');
+    assert(w5.reply.includes('تسجيل طلبك بالرقم (01099887766) في قائمة الانتظار'), 'Reply confirms waitlist with phone echo');
+    assert(w5.state.sessionState === 'WAITLIST_CONFIRMATION', 'Transitions to WAITLIST_CONFIRMATION');
     assert(w5.reply.includes('أستاذة سارة'), 'Feminine honorific used: أستاذة سارة');
-    assert(w5.reply.includes('أقدر أساعدك في أي استفسار تاني'), 'Polite wrap-up offered');
+    assert(w5.reply.includes('أول ما يفضى ميعاد هنتواصل مع حضرتك فوراً على الواتساب'), 'Polite wrap-up offered');
     assert(!w5.reply.includes('• 5:30 مساءً'), 'Strictly forbidden from re-displaying doctor time slots');
 
     console.log('\n================================================================');

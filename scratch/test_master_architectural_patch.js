@@ -172,7 +172,8 @@ async function runMasterPatchTests() {
         sessionId: 'wt-1',
         sessionData: waitlistPromptRes.state
     });
-    assert(waitlistConfirmRes.reply.includes('تم تسجل طلبك في قائمة الانتظار لـ د. أحمد شريف'), 'Mandatory waitlist confirmation phrase');
+    assert(waitlistConfirmRes.reply.includes('تم تسجيل طلبك بالرقم (01011223344) في قائمة الانتظار لـ د. أحمد شريف'), 'Mandatory waitlist confirmation phrase with phone echo');
+    assert(waitlistConfirmRes.state.sessionState === 'WAITLIST_CONFIRMATION', 'Session state transitions to WAITLIST_CONFIRMATION');
     assert(waitlistConfirmRes.reply.includes('على الواتساب'), 'Promises WhatsApp notification');
 
     // -------------------------------------------------------------

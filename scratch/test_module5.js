@@ -56,7 +56,7 @@ async function runTests() {
     console.log('Reasoning:', res.reasoningSteps);
     sessionData = res.state;
 
-    if (res.reply.includes('بعتذر لحضرتك') && res.reply.includes('محجوز') && res.reply.includes('الواتساب')) {
+    if ((res.reply.includes('نعتذر لحضرتك') || res.reply.includes('بعتذر لحضرتك')) && res.reply.includes('محجوز') && res.reply.includes('الواتساب')) {
         console.log('✅ Test 3 PASSED: Apologized, offered alternative slots, and offered waitlist notification.\n');
     } else {
         console.error('❌ Test 3 FAILED');

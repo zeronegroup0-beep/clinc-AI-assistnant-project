@@ -138,37 +138,334 @@ function convertArabicNumerals(str) {
 
 /**
  * Normalize text for typos, slang, and common phonetic substitutions
+ * Standardizes Arabic characters (Alef variants, Hamzas, diacritics, extra spaces)
  */
 function normalizeTypoAndSlang(text) {
     if (!text) return '';
     let t = convertArabicNumerals(text.trim());
 
-    t = t.replace(/\bعيز\b/g, 'عايز')
-         .replace(/\bعاوز\b/g, 'عايز')
-         .replace(/\bعايذ\b/g, 'عايز')
-         .replace(/\bاحغز\b/g, 'احجز')
-         .replace(/\bاحجذ\b/g, 'احجز')
-         .replace(/\bاحقز\b/g, 'احجز')
-         .replace(/\bاحجزلي\b/g, 'احجز لي')
-         .replace(/\bاحجزلى\b/g, 'احجز لي')
-         .replace(/\bخيلها\b/g, 'خليها')
-         .replace(/\bخلية\b/g, 'خليه')
-         .replace(/\bمعاد\b/g, 'ميعاد')
-         .replace(/\bدكتوراه\b/g, 'دكتور')
-         .replace(/\bدختور\b/g, 'دكتور')
-         .replace(/\bبكرا\b/g, 'بكرة')
-         .replace(/\bتلات\b/g, 'الثلاثاء')
-         .replace(/\bاربع\b/g, 'الأربعاء')
-         .replace(/\bاتنين\b/g, 'الإثنين')
-         .replace(/\bإتنين\b/g, 'الإثنين')
-         .replace(/\bتنين\b/g, 'الإثنين')
-         .replace(/\bبيلعيل\b/g, 'بالليل')
-         .replace(/\bبلليل\b/g, 'بالليل')
-         .replace(/\bبليل\b/g, 'بالليل')
-         .replace(/\bالكسف\b/g, 'الكشف')
-         .replace(/\bكسف\b/g, 'كشف');
+    // Remove diacritics (tashkeel) and tatweel
+    t = t.replace(/[\u064B-\u065F\u0640]/g, '');
+
+    // Standardize Alef variants and Hamzas: [إأآٱ] -> ا
+    t = t.replace(/[إأآٱ]/g, 'ا');
+
+    // Standardize multi-word phrases first
+    t = t.replace(/(^|[\s،,.؟?!])كنت\s+(?:عايز|عاوز|محتاج|حابب)($|[\s،,.؟?!])/g, '$1عايز$2')
+         .replace(/(^|[\s،,.؟?!])احجزلي($|[\s،,.؟?!])/g, '$1احجز لي$2')
+         .replace(/(^|[\s،,.؟?!])احجزلى($|[\s،,.؟?!])/g, '$1احجز لي$2');
+
+    const wordReplacements = {
+        'عيز': 'عايز',
+        'عاوز': 'عايز',
+        'محتاج': 'عايز',
+        'حابب': 'عايز',
+        'عايذ': 'عايز',
+        'عايزة': 'عايز',
+        'عايزه': 'عايز',
+        'عاوزة': 'عايز',
+        'عاوزه': 'عايز',
+        'محتاجة': 'عايز',
+        'محتاجه': 'عايز',
+        'حابة': 'عايز',
+        'حابه': 'عايز',
+        'احغز': 'احجز',
+        'احجذ': 'احجز',
+        'احقز': 'احجز',
+        'خيلها': 'خليها',
+        'خلية': 'خليه',
+        'معاد': 'ميعاد',
+        'دكتوراه': 'دكتور',
+        'دختور': 'دكتور',
+        'بكرا': 'بكرة',
+        'تلات': 'الثلاثاء',
+        'اربع': 'الأربعاء',
+        'اتنين': 'الإثنين',
+        'تنين': 'الإثنين',
+        'بيلعيل': 'بالليل',
+        'بلليل': 'بالليل',
+        'بليل': 'بالليل',
+        'الكسف': 'الكشف',
+        'كسف': 'كشف',
+        'سنان': 'اسنان'
+    };
+
+    const tokens = t.split(/([\s،,.؟?!]+)/);
+    for (let i = 0; i < tokens.length; i++) {
+        if (wordReplacements[tokens[i]]) {
+            tokens[i] = wordReplacements[tokens[i]];
+        }
+    }
+    t = tokens.join('');
+
+    // Clean extra whitespace
+    t = t.replace(/\s+/g, ' ');
 
     return t;
+}
+
+const UNIVERSAL_GENERIC_BOOKING_REPLY = `أهلاً بك! نورت عيادتنا سمارت كلينك 🌸
+عشان أقدر أساعدك بأدق ميعاد، تحب تكشف في أي تخصص أو مع أي دكتور من استشاريينا؟
+
+• د. أحمد شريف (طب وجراحة الأسنان)
+• د. سارة محمود (الجلدية والتجميل والليزر)
+• د. حسام فتحي (أمراض الباطنة والقلب)
+• د. مريم نبيل (طب وجراحة العيون)`;
+
+function getUniversalGenericBookingReply(gp = {}, honorific = null, isNewNameIntroduction = false) {
+    if (!honorific && !gp.isFemale) {
+        return UNIVERSAL_GENERIC_BOOKING_REPLY;
+    }
+    let greeting = 'أهلاً بك! نورت عيادتنا سمارت كلينك 🌸';
+    if (isNewNameIntroduction && honorific) {
+        greeting = gp.isFemale
+            ? `أهلاً بكِ أستاذة ${honorific}! نورتِ عيادتنا سمارت كلينك 🌸`
+            : `أهلاً بك يا أستاذ ${honorific}! نورت عيادتنا سمارت كلينك 🌸`;
+    }
+    const verb = gp.isFemale ? 'تحبي تكشفي' : 'تحب تكشف';
+    return `${greeting}\nعشان أقدر أساعدك بأدق ميعاد، ${verb} في أي تخصص أو مع أي دكتور من استشاريينا؟\n\n• د. أحمد شريف (طب وجراحة الأسنان)\n• د. سارة محمود (الجلدية والتجميل والليزر)\n• د. حسام فتحي (أمراض الباطنة والقلب)\n• د. مريم نبيل (طب وجراحة العيون)`;
+}
+
+/**
+ * Extract doctor by number or ordinal selection (e.g. "1", "2", "3", "4", "رقم 2", "التاني", "الثاني")
+ */
+function extractDoctorFromNumberOrOrdinal(text, state = {}) {
+    if (!text) return null;
+    const clean = text.trim().toLowerCase()
+        .replace(/[\u064B-\u065F\u0640]/g, '')
+        .replace(/[إأآٱ]/g, 'ا')
+        .replace(/ة/g, 'ه')
+        .replace(/ى/g, 'ي')
+        .replace(/[؟?.,!]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+    const doctorMap = {
+        '1': 'dr_ahmed',
+        '١': 'dr_ahmed',
+        'الاول': 'dr_ahmed',
+        'الأول': 'dr_ahmed',
+        'رقم 1': 'dr_ahmed',
+        'رقم ١': 'dr_ahmed',
+        'دكتور 1': 'dr_ahmed',
+        'دكتور ١': 'dr_ahmed',
+        'الاختيار الاول': 'dr_ahmed',
+        'الاختيار الأول': 'dr_ahmed',
+        'الخيار الاول': 'dr_ahmed',
+        'الخيار الأول': 'dr_ahmed',
+
+        '2': 'dr_sara',
+        '٢': 'dr_sara',
+        'التاني': 'dr_sara',
+        'الثاني': 'dr_sara',
+        'رقم 2': 'dr_sara',
+        'رقم ٢': 'dr_sara',
+        'دكتور 2': 'dr_sara',
+        'دكتور ٢': 'dr_sara',
+        'دكتوره 2': 'dr_sara',
+        'دكتوره ٢': 'dr_sara',
+        'الاختيار التاني': 'dr_sara',
+        'الاختيار الثاني': 'dr_sara',
+        'الخيار التاني': 'dr_sara',
+        'الخيار الثاني': 'dr_sara',
+
+        '3': 'dr_hossam',
+        '٣': 'dr_hossam',
+        'التالت': 'dr_hossam',
+        'الثالث': 'dr_hossam',
+        'رقم 3': 'dr_hossam',
+        'رقم ٣': 'dr_hossam',
+        'دكتور 3': 'dr_hossam',
+        'دكتور ٣': 'dr_hossam',
+        'الاختيار التالت': 'dr_hossam',
+        'الاختيار الثالث': 'dr_hossam',
+        'الخيار التالت': 'dr_hossam',
+        'الخيار الثالث': 'dr_hossam',
+
+        '4': 'dr_mariam',
+        '٤': 'dr_mariam',
+        'الرابع': 'dr_mariam',
+        'رقم 4': 'dr_mariam',
+        'رقم ٤': 'dr_mariam',
+        'دكتور 4': 'dr_mariam',
+        'دكتور ٤': 'dr_mariam',
+        'دكتوره 4': 'dr_mariam',
+        'دكتوره ٤': 'dr_mariam',
+        'الاختيار الرابع': 'dr_mariam',
+        'الخيار الرابع': 'dr_mariam'
+    };
+
+    if (doctorMap[clean]) {
+        // If state already has an active doctor AND a selected date and is expecting a time,
+        // don't confuse a raw number with a doctor unless prefixed with doctor/number keywords
+        if (state.bookingDraft && state.bookingDraft.doctor && state.bookingDraft.date && !clean.includes('دكتور') && !clean.includes('رقم') && !clean.includes('خيار')) {
+            return null;
+        }
+        return doctorMap[clean];
+    }
+
+    const prefixMatch = clean.match(/^(?:عايز|عاوز|حابب|محتاج|احجز|احجزلي|احجز لي|مع|اختار|اختيار|رقم|دكتور|دكتوره)\s+([1-4١-٤]|الاول|الأول|التاني|الثاني|التالت|الثالث|الرابع)$/);
+    if (prefixMatch && doctorMap[prefixMatch[1]]) {
+        return doctorMap[prefixMatch[1]];
+    }
+
+    return null;
+}
+
+/**
+ * Extract all distinct mentioned doctors from text preserving their order of appearance
+ */
+function extractAllMentionedDoctors(text) {
+    if (!text) return [];
+    const clean = text.toLowerCase()
+        .replace(/[\u064B-\u065F\u0640]/g, '')
+        .replace(/[إأآٱ]/g, 'ا')
+        .replace(/ة/g, 'ه')
+        .replace(/ى/g, 'ي')
+        .replace(/[؟?.,!]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+    const isSelfIntro = clean.includes('اسمي') || clean.includes('اسمى') || clean.includes('معاك') || clean.includes('انا اسمي');
+    const isDentalLaser = clean.includes('تبييض') || clean.includes('اسنان') || clean.includes('سنان') || clean.includes('احمد');
+
+    const doctorPositions = [];
+
+    // 1. Dr. Ahmed Sherif (Dentistry)
+    const ahmedKeywords = ['دكتور احمد', 'د احمد', 'د. احمد', 'احمد شريف', 'اسنان', 'سنان'];
+    if (!isSelfIntro) ahmedKeywords.push('احمد');
+    let earliestAhmed = Infinity;
+    for (const kw of ahmedKeywords) {
+        const idx = clean.indexOf(kw);
+        if (idx !== -1 && idx < earliestAhmed) {
+            earliestAhmed = idx;
+        }
+    }
+    if (earliestAhmed !== Infinity) {
+        doctorPositions.push({ id: 'dr_ahmed', idx: earliestAhmed });
+    }
+
+    // 2. Dr. Sara Mahmoud (Dermatology & Laser)
+    const saraKeywords = ['دكتوره ساره', 'د ساره', 'د. ساره', 'ساره محمود', 'جلديه', 'تجميل'];
+    if (!isDentalLaser) saraKeywords.push('ليزر');
+    if (!isSelfIntro) saraKeywords.push('ساره');
+    let earliestSara = Infinity;
+    for (const kw of saraKeywords) {
+        const idx = clean.indexOf(kw);
+        if (idx !== -1 && idx < earliestSara) {
+            earliestSara = idx;
+        }
+    }
+    if (earliestSara !== Infinity) {
+        doctorPositions.push({ id: 'dr_sara', idx: earliestSara });
+    }
+
+    // 3. Dr. Hossam Fathi (Cardiology & Internal)
+    const hossamKeywords = ['دكتور حسام', 'د حسام', 'د. حسام', 'حسام فتحي', 'باطنه', 'قلب'];
+    if (!isSelfIntro) hossamKeywords.push('حسام');
+    let earliestHossam = Infinity;
+    for (const kw of hossamKeywords) {
+        const idx = clean.indexOf(kw);
+        if (idx !== -1 && idx < earliestHossam) {
+            earliestHossam = idx;
+        }
+    }
+    if (earliestHossam !== Infinity) {
+        doctorPositions.push({ id: 'dr_hossam', idx: earliestHossam });
+    }
+
+    // 4. Dr. Mariam Nabil (Ophthalmology)
+    const mariamKeywords = ['دكتوره مريم', 'د مريم', 'د. مريم', 'مريم نبيل', 'عيون', 'رمد'];
+    if (!isSelfIntro) mariamKeywords.push('مريم');
+    let earliestMariam = Infinity;
+    for (const kw of mariamKeywords) {
+        const idx = clean.indexOf(kw);
+        if (idx !== -1 && idx < earliestMariam) {
+            earliestMariam = idx;
+        }
+    }
+    if (earliestMariam !== Infinity) {
+        doctorPositions.push({ id: 'dr_mariam', idx: earliestMariam });
+    }
+
+    doctorPositions.sort((a, b) => a.idx - b.idx);
+    return doctorPositions.map(d => d.id);
+}
+
+/**
+ * Format structured schedule details for multiple doctors in order
+ */
+function formatMultiDoctorSchedules(doctorIds, gp = {}) {
+    const lines = ['مواعيد الاستشاريين المطلوبين في العيادة:\n'];
+    for (const docId of doctorIds) {
+        const doc = appointmentService.DOCTORS_SCHEDULE[docId];
+        if (!doc) continue;
+        const deptTitle = doc.departmentTitle || doc.department || doc.specialty;
+        const pronoun = (docId === 'dr_sara' || docId === 'dr_mariam') ? 'مواعيدها' : 'مواعيده';
+        lines.push(`• ${doc.name} (${deptTitle}):\n  ${pronoun} في العيادة أيام (${doc.workingDaysAr}) من ${doc.hoursAr}.\n`);
+    }
+    lines.push('تحب حضرتك تحجز مع مين فيهم ويوم إيه يناسبك؟');
+    return lines.join('\n');
+}
+
+/**
+ * Universal Generic Booking Regex / Intent Check
+ * Checks if the message has generic booking intent keywords:
+ * ["احجز", "ميعاد", "جلسة", "كشف", "استشارة", "فاضيين", "مواعيد"]
+ * AND does NOT explicitly contain any doctor name OR specialty:
+ * NOT ["أحمد", "شريف", "سارة", "محمود", "حسام", "فتحي", "مريم", "نبيل", "أسنان", "جلدية", "ليزر", "باطنة", "قلب", "عيون"]
+ */
+function isUniversalGenericBookingIntent(text, state = {}) {
+    if (!text) return false;
+    const clean = text.toLowerCase()
+        .replace(/[\u064B-\u065F\u0640]/g, '')
+        .replace(/[إأآٱ]/g, 'ا')
+        .replace(/ة/g, 'ه')
+        .replace(/ى/g, 'ي')
+        .replace(/[؟?.,!]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+    // 0. If user specifically selected a doctor by number or ordinal ("1", "2", "3", "4", "رقم 2", "التاني")
+    if (extractDoctorFromNumberOrOrdinal(clean, state)) return false;
+
+    // 1. Generic keywords check
+    const genericKeywords = ['احجز', 'حجز', 'ميعاد', 'موعد', 'جلسه', 'جلسة', 'كشف', 'استشاره', 'استشارة', 'فاضيين', 'فاضي', 'مواعيد'];
+    const hasGenericKeyword = genericKeywords.some(kw => clean.includes(kw));
+    if (!hasGenericKeyword) return false;
+
+    // 2. Doctor and Specialty exclusion keywords
+    const docAndSpecialtyKeywords = [
+        'احمد', 'أحمد', 'شريف', 'ساره', 'سارة', 'محمود', 'حسام', 'فتحي', 'مريم', 'نبيل',
+        'اسنان', 'أسنان', 'سنان', 'ضرس', 'تبييض',
+        'جلديه', 'جلدية', 'ليزر', 'بشره', 'بشرة', 'فيلر', 'بوتوكس',
+        'باطنه', 'باطنة', 'قلب', 'ضغط', 'سكر',
+        'عيون', 'رمد', 'نظاره', 'نظارة', 'ليزك'
+    ];
+    const hasDoctorOrSpecialty = docAndSpecialtyKeywords.some(kw => clean.includes(kw));
+    if (hasDoctorOrSpecialty) return false;
+
+    // 3. Exclude specific informational queries
+    const isPrice = clean.includes('بكام') || clean.includes('بكم') || clean.includes('سعر') || clean.includes('اسعار') || clean.includes('تكلفه');
+    if (isPrice) return false;
+
+    const isLocation = clean.includes('عنوان') || clean.includes('مكان') || clean.includes('فين');
+    if (isLocation) return false;
+
+    const isInsurance = clean.includes('تامين') || clean.includes('بوبا') || clean.includes('اكسا') || clean.includes('ميدنت');
+    if (isInsurance) return false;
+
+    const isBranch = (clean.includes('فرع') || clean.includes('فروع')) && !clean.includes('احجز');
+    if (isBranch) return false;
+
+    // 4. If user already has an active doctor locked in booking draft from previous turns,
+    // only short-circuit if they are resetting or starting a fresh generic booking
+    const hasActiveDoctorInState = Boolean((state.bookingDraft && state.bookingDraft.doctor) || state.doctor_id);
+    if (hasActiveDoctorInState) {
+        return false;
+    }
+
+    return true;
 }
 
 /**
@@ -358,6 +655,32 @@ function isAvailabilityInquiry(text) {
 }
 
 /**
+ * Helper to construct doctor entity with standardized IDs and department
+ */
+function buildDoctorEntity(doctorId, matchedService = null) {
+    const docSchedule = appointmentService.DOCTORS_SCHEDULE[doctorId];
+    if (!docSchedule) return null;
+
+    const isCatalogMatch = Boolean(matchedService && matchedService.assigned_doctor_id === doctorId);
+    const specialty = isCatalogMatch
+        ? `${matchedService.category} - ${matchedService.display_name}`
+        : docSchedule.specialty;
+
+    return {
+        doctor: docSchedule.name,
+        doctor_id: docSchedule.doctor_id,
+        specialty_id: isCatalogMatch ? matchedService.service_id : docSchedule.specialty_id,
+        department: docSchedule.department,
+        departmentTitle: docSchedule.departmentTitle,
+        specialty,
+        category: isCatalogMatch ? matchedService.category : docSchedule.category,
+        serviceName: isCatalogMatch ? matchedService.display_name : null,
+        assignedDoctorId: docSchedule.doctor_id,
+        isServiceCatalogMatch: isCatalogMatch
+    };
+}
+
+/**
  * Extract doctor and specialty from text
  * Enforces Strict Entity Priority Rules:
  * - Rule 1 (Explicit Doctor Mention): Explicit doctor name takes absolute priority over procedure keywords.
@@ -365,7 +688,7 @@ function isAvailabilityInquiry(text) {
  *   Queries structured services catalog first. 'تبييض الأسنان' strictly locked to 'طب الأسنان' (Dr. Ahmed Sherif)
  *   and NEVER routes to 'الجلدية والتجميل' regardless of the word 'ليزر'.
  */
-function extractDoctorAndSpecialty(text) {
+function extractDoctorAndSpecialty(text, state = {}) {
     if (!text) return null;
     const clean = text.toLowerCase();
 
@@ -373,62 +696,56 @@ function extractDoctorAndSpecialty(text) {
     const isSelfIntroduction = clean.includes('اسمي') || clean.includes('اسمى') || 
                                clean.includes('معاك') || clean.includes('أنا اسمي') || clean.includes('انا اسمي');
 
+    // Rule 0: Number or Ordinal Doctor Selection (e.g. "1", "2", "3", "4", "رقم 2", "التاني", "الثاني")
+    const numericDocId = extractDoctorFromNumberOrOrdinal(clean, state);
+    if (numericDocId) {
+        return buildDoctorEntity(numericDocId);
+    }
+
     // Rule 1: Explicit Doctor Mentions (Highest Priority)
     const hasAhmedDoctorTitle = clean.includes('دكتور أحمد') || clean.includes('دكتور احمد') || 
                                 clean.includes('د. أحمد') || clean.includes('د. احمد') || 
+                                clean.includes('د أحمد') || clean.includes('د احمد') || 
                                 clean.includes('أحمد شريف') || clean.includes('احمد شريف') ||
                                 clean.includes('مع د. أحمد') || clean.includes('مع د. احمد') ||
                                 clean.includes('مع دكتور أحمد') || clean.includes('مع دكتور احمد');
 
     const hasSaraDoctorTitle = clean.includes('دكتورة سارة') || clean.includes('دكتوره ساره') || 
                                clean.includes('د. سارة') || clean.includes('د. ساره') || 
+                               clean.includes('د سارة') || clean.includes('د ساره') || 
                                clean.includes('سارة محمود') || clean.includes('ساره محمود') ||
                                clean.includes('مع دكتورة سارة') || clean.includes('مع د. سارة');
 
     const hasHossamDoctorTitle = clean.includes('دكتور حسام') || clean.includes('د. حسام') || 
-                                 clean.includes('حسام فتحي') || clean.includes('مع دكتور حسام') || 
-                                 clean.includes('مع د. حسام');
+                                 clean.includes('د حسام') || clean.includes('حسام فتحي') || 
+                                 clean.includes('مع دكتور حسام') || clean.includes('مع د. حسام');
 
     const hasMariamDoctorTitle = clean.includes('دكتورة مريم') || clean.includes('دكتوره مريم') || 
-                                 clean.includes('د. مريم') || clean.includes('مريم نبيل') || 
+                                 clean.includes('د. مريم') || clean.includes('د مريم') || 
+                                 clean.includes('مريم نبيل') || 
                                  clean.includes('مع دكتورة مريم') || clean.includes('مع د. مريم');
 
     if (hasAhmedDoctorTitle) {
-        // Also check if a specific dental service was mentioned to enrich specialty
         const matchedService = appointmentService.lookupService(clean);
-        const specialty = (matchedService && matchedService.assigned_doctor_id === 'dr_ahmed')
-            ? `${matchedService.category} - ${matchedService.display_name}`
-            : 'استشاري طب وجراحة الأسنان';
-        return { 
-            doctor: 'د. أحمد شريف', 
-            specialty,
-            serviceName: matchedService ? matchedService.display_name : null,
-            category: matchedService ? matchedService.category : 'طب وجراحة الأسنان',
-            isServiceCatalogMatch: Boolean(matchedService)
-        };
+        return buildDoctorEntity('dr_ahmed', matchedService);
     }
     if (hasSaraDoctorTitle) {
-        return { doctor: 'د. سارة محمود', specialty: 'أخصائية الجلدية والتجميل والليزر' };
+        const matchedService = appointmentService.lookupService(clean);
+        return buildDoctorEntity('dr_sara', matchedService);
     }
     if (hasHossamDoctorTitle) {
-        return { doctor: 'د. حسام فتحي', specialty: 'استشاري الباطنة والقلب' };
+        const matchedService = appointmentService.lookupService(clean);
+        return buildDoctorEntity('dr_hossam', matchedService);
     }
     if (hasMariamDoctorTitle) {
-        return { doctor: 'د. مريم نبيل', specialty: 'أخصائية طب وجراحة العيون' };
+        const matchedService = appointmentService.lookupService(clean);
+        return buildDoctorEntity('dr_mariam', matchedService);
     }
 
     // Rule 2: Service Catalog Lookup First
     const matchedService = appointmentService.lookupService(clean);
-    if (matchedService) {
-        return {
-            doctor: matchedService.assigned_doctor_name,
-            specialty: `${matchedService.category} - ${matchedService.display_name}`,
-            serviceId: matchedService.service_id,
-            serviceName: matchedService.display_name,
-            category: matchedService.category,
-            assignedDoctorId: matchedService.assigned_doctor_id,
-            isServiceCatalogMatch: true
-        };
+    if (matchedService && matchedService.assigned_doctor_id) {
+        return buildDoctorEntity(matchedService.assigned_doctor_id, matchedService);
     }
 
     // Specialty / Keyword Lock: Dental / Teeth Whitening Priority
@@ -436,34 +753,34 @@ function extractDoctorAndSpecialty(text) {
     if (clean.includes('تبييض') || clean.includes('أسنان') || clean.includes('اسنان') || 
         clean.includes('سنان') || clean.includes('ضرس') || clean.includes('dentist') || 
         clean.includes('teeth') || clean.includes('zoom') || clean.includes('زووم') || clean.includes('زوم')) {
-        return { doctor: 'د. أحمد شريف', specialty: 'طب وجراحة الأسنان' };
+        return buildDoctorEntity('dr_ahmed', matchedService);
     }
 
     // Dermatology & Laser: ONLY if NOT dental and specifically dermatology or hair laser
     if (clean.includes('جلدية') || clean.includes('تجميل') || clean.includes('بشرة') || clean.includes('بشره') ||
         (clean.includes('ليزر') && !clean.includes('أسنان') && !clean.includes('اسنان') && !clean.includes('تبييض'))) {
-        return { doctor: 'د. سارة محمود', specialty: 'أخصائية الجلدية والتجميل' };
+        return buildDoctorEntity('dr_sara', matchedService);
     }
 
     // Cardiology / Internal Medicine
     if (clean.includes('باطنة') || clean.includes('باطنه') || clean.includes('قلب') || 
         clean.includes('ضغط') || clean.includes('سكر') || clean.includes('حسام') || clean.includes('hossam')) {
-        return { doctor: 'د. حسام فتحي', specialty: 'استشاري الباطنة والقلب' };
+        return buildDoctorEntity('dr_hossam', matchedService);
     }
 
     // Ophthalmology
     if (clean.includes('عيون') || clean.includes('رمد') || clean.includes('نظارة') || 
         clean.includes('نظاره') || clean.includes('مريم') || clean.includes('mariam') || clean.includes('ليزك')) {
-        return { doctor: 'د. مريم نبيل', specialty: 'أخصائية طب وجراحة العيون' };
+        return buildDoctorEntity('dr_mariam', matchedService);
     }
 
     // Contextual doctor mentions without "دكتور" prefix (safeguarded against name introductions)
     if (!isSelfIntroduction) {
         if (clean.includes('سارة') || clean.includes('ساره')) {
-            return { doctor: 'د. سارة محمود', specialty: 'أخصائية الجلدية والتجميل' };
+            return buildDoctorEntity('dr_sara');
         }
         if (clean.includes('أحمد') || clean.includes('احمد')) {
-            return { doctor: 'د. أحمد شريف', specialty: 'طب وجراحة الأسنان' };
+            return buildDoctorEntity('dr_ahmed');
         }
     }
 
@@ -547,9 +864,9 @@ function extractTimeSlot(text) {
  * Check if the input is completely incomprehensible gibberish / keyboard mash
  */
 function isGibberish(text) {
-    if (!text) return true;
+    if (!text) return false;
     const clean = text.trim();
-    if (clean.length < 2) return true;
+    if (clean.length < 3) return false;
 
     if (/^[a-zA-Z\s]{4,}$/.test(clean)) {
         const commonEnglish = ['hello', 'hi', 'booking', 'doctor', 'appointment', 'monday', 'tuesday', 'teeth', 'clinic', 'available', 'tomorrow', 'slots'];
@@ -570,13 +887,35 @@ function isGibberish(text) {
         'ميعاد', 'موعد', 'ساعة', 'ساعه', 'الإثنين', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس',
         'الجمعة', 'السبت', 'الأحد', 'الواتساب', 'واتساب', 'رقمي', 'سجلني', 'شكرا', 'تمام', 'ألو', 'الو',
         'بكرة', 'غدا', 'متاح', 'محجوز', 'انتظار', 'بلغوني', 'نبهني', 'تنورنا', 'خدمات', 'أسعار', 'رقم', 'معاك',
-        'فاضي', 'فاضيين', 'مواعيد', 'بكام', 'بكم', 'سعر', 'كام', 'بعده', 'بعديه', 'اخبار', 'أخبار'
+        'فاضي', 'فاضيين', 'مواعيد', 'بكام', 'بكم', 'سعر', 'كام', 'بعده', 'بعديه', 'اخبار', 'أخبار',
+        'عنوان', 'مكان', 'فين', 'فرع', 'فروع', 'دمنهور', 'اسكندرية', 'الإسكندرية', 'تأمين', 'تامين', 'بوبا', 'اكسا'
     ];
 
     const hasKnownWord = knownWords.some(w => clean.includes(w));
     if (hasKnownWord) return false;
 
     if (/\d{3,}/.test(clean)) return false;
+
+    // Keyboard rows in Arabic
+    const row1 = 'ضصثقفغعهخحجد';
+    const row2 = 'شسيبلاتنمكط';
+    const row3 = 'ئءؤرىةوزظ';
+
+    // If words are composed of mash characters and no known word
+    const words = clean.split(/\s+/).filter(Boolean);
+    let mashWordCount = 0;
+    for (const w of words) {
+        if (w.length >= 4) {
+            const isRowMash = [...w].every(c => row1.includes(c)) || [...w].every(c => row2.includes(c)) || [...w].every(c => row3.includes(c));
+            if (isRowMash) {
+                mashWordCount++;
+            }
+        }
+    }
+
+    if (mashWordCount >= 1 && !hasKnownWord) {
+        return true;
+    }
 
     return false;
 }
@@ -628,8 +967,11 @@ function analyzePhoneNumber(text) {
         };
     }
 
+    // Only flag as phone attempt if it has phone-like indicators
+    const isPhoneLike = cleanNumber.startsWith('01') || cleanNumber.startsWith('+20') || cleanNumber.startsWith('0020') || cleanNumber.length >= 7;
+
     return {
-        hasAttempt: true,
+        hasAttempt: isPhoneLike,
         isValid: false,
         phone: null,
         raw
@@ -653,7 +995,8 @@ const NAME_BLACKLIST = new Set([
     'رقم', 'رقمي', 'تليفون', 'هاتف', 'موبايل', 'واتساب', 'الواتساب',
     'شكرا', 'شكراً', 'تسلم', 'عفوا', 'عفواً', 'ماشي', 'ماشى', 'اوك', 'اوكي', 'حاضر', 'طيب', 'خلاص',
     'تعبان', 'مريض', 'وجع', 'ألم', 'ضرسي', 'ساني', 'ضرس', 'سنان',
-    'حضرتك', 'فندم', 'باشا', 'أستاذ', 'استاذ', 'أستاذة', 'استاذة'
+    'حضرتك', 'فندم', 'باشا', 'أستاذ', 'استاذ', 'أستاذة', 'استاذة',
+    'مش', 'غير', 'لا'
 ]);
 
 /**
@@ -673,23 +1016,30 @@ function extractNameFromMessage(text, isExplicitlyAwaitingName = false) {
         });
     };
 
+    // Strip negated name statements like "اسمي مش سارة" or "مش اسمي سارة"
+    let effectiveClean = clean
+        .replace(/(?:اسمي|اسمى)\s+مش\s+[^\n،,.]+/gi, '')
+        .replace(/مش\s+(?:اسمي|اسمى)\s+[^\n،,.]+/gi, '')
+        .replace(/(?:اسمي|اسمى)\s+غير\s+[^\n،,.]+/gi, '')
+        .trim();
 
-    // Explicit introduction patterns ONLY
+    // Explicit introduction patterns ONLY (allows 1 to 4 words name)
     const explicitPatterns = [
-        /(?:اسمي|اسمى)\s+([أ-يa-zA-Z]{2,15}(?:\s+[أ-يa-zA-Z]{2,15})?)/i,
-        /(?:أنا|انا)\s+(?:اسمي|اسمى)\s+([أ-يa-zA-Z]{2,15}(?:\s+[أ-يa-zA-Z]{2,15})?)/i,
-        /(?:معاك|معك)\s+(?:أستاذ|استاذ|دكتور|باشمهندس|مهندس|مدام|سيدة)?\s*([أ-يa-zA-Z]{2,15}(?:\s+[أ-يa-zA-Z]{2,15})?)/i,
-        /(?:الحجز\s+باسم|سجل\s+باسم|باسم)\s+([أ-يa-zA-Z]{2,15}(?:\s+[أ-يa-zA-Z]{2,15})?)/i
+        /(?:اسمي|اسمى)\s+([أ-يa-zA-Z]{2,15}(?:\s+[أ-يa-zA-Z]{2,15}){0,3})/i,
+        /(?:أنا|انا)\s+(?:اسمي|اسمى)\s+([أ-يa-zA-Z]{2,15}(?:\s+[أ-يa-zA-Z]{2,15}){0,3})/i,
+        /(?:معاك|معك)\s+(?:أستاذ|استاذ|دكتور|باشمهندس|مهندس|مدام|سيدة)?\s*([أ-يa-zA-Z]{2,15}(?:\s+[أ-يa-zA-Z]{2,15}){0,3})/i,
+        /(?:الحجز\s+باسم|سجل\s+باسم|باسم)\s+([أ-يa-zA-Z]{2,15}(?:\s+[أ-يa-zA-Z]{2,15}){0,3})/i
     ];
 
     // Stop words that shouldn't be included as part of the patient's name
     const NAME_STOP_WORDS = new Set([
         'ورقمي', 'ورقمى', 'ورقم', 'وتليفوني', 'وتليفونى', 'رقمي', 'رقمى', 'تليفوني', 'تليفونى', 
-        'وعايز', 'وعايزة', 'وعاوز', 'وعاوزة', 'وحابب', 'وحابة', 'وعندي', 'وعندى'
+        'وعايز', 'وعايزة', 'وعاوز', 'وعاوزة', 'وحابب', 'وحابة', 'وعندي', 'وعندى', 'مش', 'لا', 'غير',
+        'كشف', 'حجز'
     ]);
 
     for (const pattern of explicitPatterns) {
-        const match = clean.match(pattern);
+        const match = effectiveClean.match(pattern);
         if (match && match[1]) {
             let candidate = match[1].trim();
             const words = candidate.split(/\s+/);
@@ -705,17 +1055,17 @@ function extractNameFromMessage(text, isExplicitlyAwaitingName = false) {
 
     // ONLY if the bot specifically asked for the name in the immediately preceding turn
     if (isExplicitlyAwaitingName) {
-        let candidate = clean;
+        let candidate = effectiveClean;
         const words = candidate.split(/\s+/);
         const stopIdx = words.findIndex(w => NAME_STOP_WORDS.has(w.toLowerCase()));
         if (stopIdx !== -1) {
             candidate = words.slice(0, stopIdx).join(' ').trim();
         }
         const candidateWords = candidate.split(/\s+/).filter(Boolean);
-        if (candidateWords.length >= 1 && candidateWords.length <= 3 && !/\d/.test(candidate) && /^[أ-يa-zA-Z\s]{2,30}$/.test(candidate)) {
+        if (candidateWords.length >= 1 && candidateWords.length <= 4 && !/\d/.test(candidate) && /^[أ-يa-zA-Z\s]{2,40}$/.test(candidate)) {
             return candidate;
         }
-        if (candidate && !containsBlacklisted(candidate) && !/\d/.test(candidate) && /^[أ-يa-zA-Z\s]{2,30}$/.test(candidate)) {
+        if (candidate && !containsBlacklisted(candidate) && !/\d/.test(candidate) && /^[أ-يa-zA-Z\s]{2,40}$/.test(candidate)) {
             return candidate;
         }
     }
@@ -753,10 +1103,22 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
     }
 
     // -------------------------------------------------------------
+    // MODULE 1.5: INCOMPREHENSIBLE GIBBERISH / KEYBOARD MASH GUARD
+    // -------------------------------------------------------------
+    if (!state.awaitingName && !state.awaitingPhone && isGibberish(rawText)) {
+        reasoningSteps.push('طلب التوضيح بسبب نص غير مفهوم / كتابة عشوائية دون اختلاق حجز');
+        return {
+            reply: 'عفواً، ما فهمتش قصد حضرتك، ممكن توضح أكتر إزاي أقدر أساعدك؟',
+            reasoningSteps,
+            state
+        };
+    }
+
+    // -------------------------------------------------------------
     // DYNAMIC GENDER & PRONOUN AGREEMENT TRACKING
     // -------------------------------------------------------------
     state.gender = detectGender({
-        text: normalizedText,
+        text: rawText,
         name: state.patientName || state.userName,
         currentGender: state.userGender || state.gender
     });
@@ -860,7 +1222,14 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
             }
 
             if (state.awaitingWaitlist) {
-                const docName = state.waitlistSlot?.doctor || 'د. أحمد شريف';
+                const docName = state.waitlistSlot?.doctor || state.bookingDraft?.doctor;
+                if (!docName) {
+                    return {
+                        reply: UNIVERSAL_GENERIC_BOOKING_REPLY,
+                        reasoningSteps: ['حظر استدعاء أداة قائمة الانتظار لعدم تحديد الطبيب'],
+                        state
+                    };
+                }
                 if (state.patientPhone) {
                     const waitlistResult = await appointmentService.addToWaitlist({
                         patientName: state.patientName,
@@ -870,14 +1239,20 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
                         requestedTime: state.waitlistSlot?.time || '4:30 مساءً',
                         notes: 'طلب إخطار فوري عند توفر الموعد'
                     });
-                    const reply = `تمام يا ${honorific}، تم تسجل طلبك في قائمة الانتظار لـ ${docName}. أول ما يفضى ميعاد هنتواصل مع حضرتك فوراً على الواتساب.`;
+                    const reply = `تمام يا ${honorific}، تم تسجيل طلبك بالرقم (${state.patientPhone}) في قائمة الانتظار لـ ${docName}. أول ما يفضى ميعاد هنتواصل مع حضرتك فوراً على الواتساب.`;
                     delete state.bookingDraft;
                     delete state.waitlistSlot;
                     delete state.awaitingWaitlist;
                     delete state.awaitingPhone;
+                    state.sessionState = 'WAITLIST_CONFIRMATION';
+                    state.status = 'WAITLIST_CONFIRMATION';
+                    state.step = 'WAITLIST_CONFIRMATION';
                     return { reply, reasoningSteps, state, card: { type: 'waitlist_confirmed', waitlistId: waitlistResult.waitlistId, patientName: state.patientName, doctor: docName, phone: state.patientPhone } };
                 }
                 state.awaitingPhone = true;
+                state.sessionState = 'WAITLIST_AWAITING_PHONE';
+                state.status = 'WAITLIST_AWAITING_PHONE';
+                state.step = 'WAITLIST_AWAITING_PHONE';
                 const reply = `تمام يا ${honorific}، يشرفني بس رقم الواتساب عشان نسجل طلبك في قائمة الانتظار لـ ${docName}، وأول ما يفضى ميعاد هنتواصل مع حضرتك فوراً على الواتساب.`;
                 return { reply, reasoningSteps, state };
             }
@@ -899,20 +1274,32 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
         }
     }
 
-    if (!state.patientName) {
-        const extractedName = extractNameFromMessage(normalizedText, Boolean(state.awaitingName));
+    const isNameCorrection = normalizedText.includes('اسمي مش') || 
+                             normalizedText.includes('اسمى مش') ||
+                             normalizedText.includes('مش اسمي') || 
+                             normalizedText.includes('مش اسمى') ||
+                             normalizedText.includes('غيرت اسمي') || 
+                             normalizedText.includes('غيرت اسمى') || 
+                             normalizedText.includes('تعديل الاسم') || 
+                             normalizedText.includes('تصحيح الاسم') || 
+                             normalizedText.includes('الاسم الصحيح') || 
+                             normalizedText.includes('الاسم الصح') ||
+                             normalizedText.includes('الاسم غلط');
+
+    if (!state.patientName || isNameCorrection) {
+        const extractedName = extractNameFromMessage(rawText, Boolean(state.awaitingName)) || extractNameFromMessage(normalizedText, Boolean(state.awaitingName));
         if (extractedName) {
             state.userName = extractedName;
             state.patientName = extractedName;
             delete state.awaitingName;
             state.gender = detectGender({
-                text: normalizedText,
+                text: rawText,
                 name: extractedName,
                 currentGender: state.gender || state.userGender
             });
             state.userGender = state.gender;
             gp = getGenderedPhrases(state.gender);
-            reasoningSteps.push(`تم التعرف على اسم المريض: ${extractedName} وضبط التذكير والتأنيث (${state.gender}) وحفظه في ذاكرة الجلسة`);
+            reasoningSteps.push(`تم ${isNameCorrection ? 'تصحيح' : 'التعرف على'} اسم المريض: ${extractedName} وضبط التذكير والتأنيث (${state.gender}) وحفظه في ذاكرة الجلسة`);
         }
     }
 
@@ -925,6 +1312,76 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
         reasoningSteps.push(`تم التحقق من صحة رقم الواتساب المصري: ${phoneAnalysis.phone}`);
     }
 
+    // Entity Correction acknowledgment
+    if (isNameCorrection && state.patientName) {
+        reasoningSteps.push(`تصحيح بيانات المريض: تعديل الاسم إلى "${state.patientName}"`);
+        const newHonorific = gp.formatHonorific(state.patientName);
+        let corrReply = `تمام يا ${newHonorific}، تم تعديل البيانات وتسجيل اسم حضرتك`;
+        if (state.patientPhone) {
+            corrReply += ` ورقم الواتساب (${state.patientPhone})`;
+        }
+        corrReply += ' بنجاح! ';
+
+        if (state.bookingDraft?.doctor) {
+            if (state.bookingDraft.date && state.bookingDraft.time) {
+                corrReply += `تحب${gp.isFemale ? 'ي' : ''} نأكد حجز ميعاد حضرتك ${state.bookingDraft.date} الساعة ${state.bookingDraft.time} مع ${state.bookingDraft.doctor}؟`;
+            } else if (state.bookingDraft.date) {
+                corrReply += `تحب${gp.isFemale ? 'ي' : ''} ميعاد الساعة كام لكشف ${state.bookingDraft.specialty || state.bookingDraft.doctor} ${state.bookingDraft.date}؟`;
+            } else {
+                corrReply += `تحب${gp.isFemale ? 'ي' : ''} تحجز${gp.isFemale ? 'ي' : ''} يوم إيه مع ${state.bookingDraft.doctor}؟`;
+            }
+        } else {
+            corrReply += `إزاي أقدر أساعدك النهاردة؟`;
+        }
+
+        return {
+            reply: corrReply,
+            reasoningSteps,
+            state
+        };
+    }
+
+    // -------------------------------------------------------------
+    // MODULE 1.6: UNIVERSAL GENERIC BOOKING INTENT INTERCEPTOR (Pre-LLM / Pre-Tool Short-Circuit)
+    // -------------------------------------------------------------
+    if (!isNameCorrection && !phoneAnalysis.hasAttempt && isUniversalGenericBookingIntent(normalizedText, state)) {
+        delete state.awaitingName;
+        delete state.awaitingPhone;
+        reasoningSteps.push('معترض النوايا العامة الفوري (Universal Generic Intent Interceptor): رصد نية حجز عامة دون تحديد الطبيب أو التخصص صراحة. التوقف الفوري دون استدعاء أي أداة أو LLM.');
+        const effectiveDate = resolveDateFromText(normalizedText, currentDate);
+        if (effectiveDate) {
+            state.bookingDraft = state.bookingDraft || {};
+            state.bookingDraft.date = effectiveDate.label;
+            state.bookingDraft.dateStr = effectiveDate.dateStr;
+        }
+        return {
+            reply: getUniversalGenericBookingReply(gp, honorific, isNewNameIntroduction),
+            reasoningSteps,
+            state
+        };
+    }
+
+    // -------------------------------------------------------------
+    // MODULE 1.7: MULTI-DOCTOR INQUIRY INTERCEPTOR
+    // Handles requests comparing or asking for multiple doctors' schedules
+    // (e.g. "مواعيد د احمد و د سارة ايه ؟")
+    // -------------------------------------------------------------
+    const multiDoctors = extractAllMentionedDoctors(normalizedText);
+    const lowerTextForSwitch = normalizedText.toLowerCase();
+    const isExplicitDoctorSwitch = lowerTextForSwitch.includes('غيرت رأيي') || lowerTextForSwitch.includes('غيرت رايي') ||
+                                  lowerTextForSwitch.includes('هحول') || lowerTextForSwitch.includes('احول') ||
+                                  lowerTextForSwitch.includes('مش عايز') || lowerTextForSwitch.includes('مش عاوز') ||
+                                  lowerTextForSwitch.includes('بدل');
+
+    if (multiDoctors.length > 1 && !isExplicitDoctorSwitch && !isNameCorrection && !phoneAnalysis.hasAttempt) {
+        reasoningSteps.push(`استفسار متعدد عن الأطباء: رصد ${multiDoctors.length} أطباء (${multiDoctors.join(', ')}). تقديم مواعيد كل طبيب بالتفصيل حسب ترتيب الذكر.`);
+        return {
+            reply: formatMultiDoctorSchedules(multiDoctors, gp),
+            reasoningSteps,
+            state
+        };
+    }
+
     // -------------------------------------------------------------
     // 3. INPUT VALIDATION AWARENESS: Invalid phone formats
     // -------------------------------------------------------------
@@ -933,6 +1390,11 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
     if (phoneAnalysis.hasAttempt && !phoneAnalysis.isValid) {
         reasoningSteps.push(`تنبيه التحقق: الرقم المدخل (${phoneAnalysis.raw}) غير مطابق لصيغة الهواتف المصرية (11 رقماً تبدأ بـ 01)`);
         state.awaitingPhone = true;
+        if (state.awaitingWaitlist) {
+            state.sessionState = 'WAITLIST_AWAITING_PHONE';
+            state.status = 'WAITLIST_AWAITING_PHONE';
+            state.step = 'WAITLIST_AWAITING_PHONE';
+        }
 
         return {
             reply: 'عذراً، رقم المحمول المكتوب غير مكتمل. يرجى كتابة رقم الموبايل المصري المكون من 11 رقم (مثال: 01012345678)',
@@ -944,6 +1406,11 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
     if (isExpectingPhone && !phoneAnalysis.isValid && /^\d{2,10}$/.test(normalizedText.replace(/\s+/g, ''))) {
         reasoningSteps.push('تنبيه التحقق: إدخال رقمي غير صالح (أقل من 11 رقماً)');
         state.awaitingPhone = true;
+        if (state.awaitingWaitlist) {
+            state.sessionState = 'WAITLIST_AWAITING_PHONE';
+            state.status = 'WAITLIST_AWAITING_PHONE';
+            state.step = 'WAITLIST_AWAITING_PHONE';
+        }
 
         return {
             reply: 'عذراً، رقم المحمول المكتوب غير مكتمل. يرجى كتابة رقم الموبايل المصري المكون من 11 رقم (مثال: 01012345678)',
@@ -1020,7 +1487,14 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
 
     if (state.awaitingWaitlist || isWaitlist) {
         if (isWaitlist || (state.awaitingWaitlist && phoneAnalysis.isValid)) {
-            const docName = state.waitlistSlot?.doctor || state.bookingDraft?.doctor || 'د. أحمد شريف';
+            const docName = state.waitlistSlot?.doctor || state.bookingDraft?.doctor;
+            if (!docName) {
+                return {
+                    reply: UNIVERSAL_GENERIC_BOOKING_REPLY,
+                    reasoningSteps: ['حظر استدعاء أداة قائمة الانتظار لعدم تحديد الطبيب'],
+                    state
+                };
+            }
             const reqDate = state.waitlistSlot?.date || state.bookingDraft?.date || 'يوم الإثنين';
             const reqTime = state.waitlistSlot?.time || state.bookingDraft?.time || '4:30 مساءً';
 
@@ -1043,7 +1517,7 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
                     notes: 'طلب إخطار فوري عند توفر الموعد'
                 });
 
-                const reply = `تمام يا ${userTitle}، تم تسجل طلبك في قائمة الانتظار لـ ${docName}. أول ما يفضى ميعاد هنتواصل مع حضرتك فوراً على الواتساب.`;
+                const reply = `تمام يا ${userTitle}، تم تسجيل طلبك بالرقم (${phoneToUse}) في قائمة الانتظار لـ ${docName}. أول ما يفضى ميعاد هنتواصل مع حضرتك فوراً على الواتساب.`;
 
                 const card = {
                     type: 'waitlist_confirmed',
@@ -1060,6 +1534,10 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
                 delete state.awaitingWaitlist;
                 delete state.awaitingPhone;
 
+                state.sessionState = 'WAITLIST_CONFIRMATION';
+                state.status = 'WAITLIST_CONFIRMATION';
+                state.step = 'WAITLIST_CONFIRMATION';
+
                 return {
                     reply,
                     reasoningSteps,
@@ -1071,6 +1549,9 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
             // If phone is not provided yet, ask ONLY for WhatsApp number
             state.awaitingPhone = true;
             state.awaitingWaitlist = true;
+            state.sessionState = 'WAITLIST_AWAITING_PHONE';
+            state.status = 'WAITLIST_AWAITING_PHONE';
+            state.step = 'WAITLIST_AWAITING_PHONE';
             state.waitlistSlot = state.waitlistSlot || {
                 doctor: docName,
                 date: reqDate,
@@ -1158,13 +1639,22 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
         };
     }
 
+    const extractedDoc = extractDoctorAndSpecialty(normalizedText, state);
+
     // Multi-Branch Handling & Switching (Module 6)
     const isAlexBranch = lowerText.includes('إسكندرية') || lowerText.includes('اسكندرية') || lowerText.includes('إسكندريه') || lowerText.includes('اسكندريه');
     const isDamanhourBranch = lowerText.includes('دمنهور');
 
-    if (isAlexBranch && (isAvailabilityInquiry(lowerText) || lowerText.includes('مواعيد') || lowerText.includes('فرع'))) {
+    if (isAlexBranch) {
         state.branch_id = 'alex';
         state.branch_name = 'الإسكندرية';
+    }
+    if (isDamanhourBranch) {
+        state.branch_id = 'damanhour';
+        state.branch_name = 'دمنهور';
+    }
+
+    if (!extractedDoc?.doctor && isAlexBranch && (isAvailabilityInquiry(lowerText) || lowerText.includes('مواعيد') || lowerText.includes('فرع'))) {
         reasoningSteps.push('استرجاع مواعيد فرع الإسكندرية وتحديث فرع الجلسة');
         let branchReply = 'مواعيد فرع الإسكندرية: د. حسام فتحي (الباطنة والقلب)، د. مريم نبيل (العيون)، ود. أحمد شريف (الأسنان). تحب أحجز لحضرتك ميعاد في فرع الإسكندرية؟';
         return { reply: branchReply, reasoningSteps, state };
@@ -1235,8 +1725,8 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
             reasoningSteps.push(`المريض أكد أو اختار الموعد البديل: ${confirmedTime}، قفل الاختيار فوراً`);
 
             state.pendingBooking = {
-                doctor: state.bookingDraft.doctor || 'د. أحمد شريف',
-                specialty: state.bookingDraft.specialty || 'طب وجراحة الأسنان',
+                doctor: state.bookingDraft.doctor,
+                specialty: state.bookingDraft.specialty,
                 date: state.bookingDraft.date,
                 time: confirmedTime
             };
@@ -1275,7 +1765,6 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
     // Handling "بعده", "واللي بعده", "وكمان يومين" relative to lastDiscussedDate
     // -------------------------------------------------------------
     const chainedRelative = detectChainedRelativeDate(normalizedText);
-    const extractedDoc = extractDoctorAndSpecialty(normalizedText);
 
     let effectiveDate = null;
     let clarificationGreeting = '';
@@ -1334,14 +1823,83 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
         }
     }
 
+    // -------------------------------------------------------------
+    // DOCTOR / SPECIALTY SWITCHING STATE UPDATE ENGINE
+    // Rule 1: Reset both doctor_id AND specialty_id simultaneously in session memory.
+    // Rule 2: Ensure response templates dynamically fetch the correct department title.
+    // -------------------------------------------------------------
+    const currentDoctorId = state.doctor_id || 
+                           (state.bookingDraft && state.bookingDraft.doctor_id) || 
+                           (state.bookingDraft && state.bookingDraft.doctor ? appointmentService.findDoctorSchedule(state.bookingDraft.doctor)?.id : null);
+    const currentSpecialtyId = state.specialty_id || (state.bookingDraft && state.bookingDraft.specialty_id);
+
+    const isExplicitChangeOfMind = lowerText.includes('غيرت رأيي') || lowerText.includes('غيرت رايي') ||
+                                   lowerText.includes('تغيير الدكتور') || lowerText.includes('تغيير التخصص') ||
+                                   lowerText.includes('عايز اغير') || lowerText.includes('عايز أغير') ||
+                                   lowerText.includes('عاوز اغير') || lowerText.includes('عاوز أغير') ||
+                                   lowerText.includes('مش عايز دكتور') || lowerText.includes('مش عاوز دكتور') ||
+                                   lowerText.includes('بلاش دكتور') || lowerText.includes('دكتور تاني') ||
+                                   lowerText.includes('دكتور ثاني') || lowerText.includes('تخصص تاني') ||
+                                   lowerText.includes('تخصص ثاني') || lowerText.includes('ابدل') || lowerText.includes('أبدل') ||
+                                   lowerText.includes('هحول') || lowerText.includes('احول') || lowerText.includes('حول');
+
+    const isDoctorOrSpecialtySwitch = Boolean(
+        (extractedDoc && currentDoctorId && extractedDoc.doctor_id !== currentDoctorId) ||
+        (extractedDoc && currentSpecialtyId && extractedDoc.specialty_id !== currentSpecialtyId) ||
+        (isExplicitChangeOfMind && (currentDoctorId || currentSpecialtyId || state.bookingDraft?.doctor))
+    );
+
+    if (isDoctorOrSpecialtySwitch) {
+        reasoningSteps.push('تحديث حالة تغيير الطبيب/التخصص (Doctor/Specialty Switch): تصفير doctor_id و specialty_id بالتزامن في ذاكرة الجلسة وإلغاء البيانات العالقة للطبيب السابق.');
+        // Requirement 1: Reset both doctor_id AND specialty_id simultaneously in session memory
+        state.doctor_id = null;
+        state.specialty_id = null;
+
+        // Clear previous doctor-specific booking draft memory
+        if (state.bookingDraft) {
+            delete state.bookingDraft.doctor_id;
+            delete state.bookingDraft.specialty_id;
+            delete state.bookingDraft.doctor;
+            delete state.bookingDraft.specialty;
+            delete state.bookingDraft.department;
+            delete state.bookingDraft.departmentTitle;
+            delete state.bookingDraft.category;
+            delete state.bookingDraft.serviceName;
+            delete state.bookingDraft.isServiceCatalogMatch;
+            delete state.bookingDraft.assignedDoctorId;
+            delete state.bookingDraft.date;
+            delete state.bookingDraft.dateStr;
+            delete state.bookingDraft.time;
+        }
+        delete state.pendingBooking;
+        delete state.suggestedAlternativeTime;
+        delete state.waitlistSlot;
+        delete state.awaitingWaitlist;
+        delete state.lastDiscussedDate;
+
+        if (isExplicitChangeOfMind && !extractedDoc) {
+            return {
+                reply: `تمام يا فندم ولا يهمك خالص! تحب${gp.isFemale ? 'ي' : ''} تحجز${gp.isFemale ? 'ي' : ''} مع دكتور مين أو في أي تخصص؟ متاح عندنا: د. أحمد شريف (الأسنان)، د. سارة محمود (الجلدية والليزر)، د. حسام فتحي (الباطنة والقلب)، ود. مريم نبيل (العيون).`,
+                reasoningSteps,
+                state
+            };
+        }
+    }
+
     // Update draft state if doctor or date or time mentioned
     if (!state.bookingDraft) {
         state.bookingDraft = {};
     }
 
     if (extractedDoc) {
+        state.doctor_id = extractedDoc.doctor_id;
+        state.specialty_id = extractedDoc.specialty_id;
+        state.bookingDraft.doctor_id = extractedDoc.doctor_id;
+        state.bookingDraft.specialty_id = extractedDoc.specialty_id;
         state.bookingDraft.doctor = extractedDoc.doctor;
         state.bookingDraft.specialty = extractedDoc.specialty;
+        state.bookingDraft.department = extractedDoc.department;
+        state.bookingDraft.departmentTitle = extractedDoc.departmentTitle;
         if (extractedDoc.isServiceCatalogMatch) {
             state.bookingDraft.isServiceCatalogMatch = true;
             state.bookingDraft.serviceName = extractedDoc.serviceName;
@@ -1349,34 +1907,37 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
             state.bookingDraft.assignedDoctorId = extractedDoc.assignedDoctorId;
         }
     } else if (!state.bookingDraft.doctor) {
-        // Default to Dr. Ahmed if teeth are mentioned
+        // Default to Dr. Ahmed ONLY if teeth are mentioned
         if (lowerText.includes('أسنان') || lowerText.includes('اسنان') || lowerText.includes('ضرس') || lowerText.includes('سنان')) {
+            state.doctor_id = 'dr_ahmed';
+            state.specialty_id = 'dentistry';
+            state.bookingDraft.doctor_id = 'dr_ahmed';
+            state.bookingDraft.specialty_id = 'dentistry';
             state.bookingDraft.doctor = 'د. أحمد شريف';
             state.bookingDraft.specialty = 'طب وجراحة الأسنان';
-        } else if (effectiveDate || extractedTime) {
-            state.bookingDraft.doctor = 'د. أحمد شريف';
-            state.bookingDraft.specialty = 'طب وجراحة الأسنان';
+            state.bookingDraft.department = 'طب وجراحة الأسنان';
+            state.bookingDraft.departmentTitle = 'الأسنان';
         }
     }
 
     // -------------------------------------------------------------
     // 9. DOCTOR WORKING DAYS & TODAY'S FINISHED CHECK (Strict Rule 2 & 3)
     // -------------------------------------------------------------
-    if (effectiveDate) {
-        const doctorToCheck = state.bookingDraft.doctor || 'د. أحمد شريف';
+    const activeDoctorCandidate = (extractedDoc && extractedDoc.doctor) || (state.bookingDraft && state.bookingDraft.doctor);
+    if (effectiveDate && activeDoctorCandidate) {
         const workingDayCheck = await appointmentService.checkAvailability({
-            doctor: doctorToCheck,
+            doctor: activeDoctorCandidate,
             date: effectiveDate.label,
             time: null,
             currentDate
         });
 
         if (workingDayCheck.isDayOff) {
-            reasoningSteps.push(`تحقق أيام العمل: الطبيب ${doctorToCheck} في عطلة يوم ${effectiveDate.label}. عرض مواعيده المتاحة بدلاً من فحص المواعيد`);
+            reasoningSteps.push(`تحقق أيام العمل: الطبيب ${activeDoctorCandidate} في عطلة يوم ${effectiveDate.label}. عرض مواعيده المتاحة بدلاً من فحص المواعيد`);
             delete state.bookingDraft.date;
             delete state.bookingDraft.dateStr;
             return {
-                reply: `${doctorToCheck} مش موجود في اليوم ده، مواعيده المتاحة هي (أيام ${workingDayCheck.workingDaysAr})، تحب${gp.isFemale ? 'ي' : ''} أحجز ${gp.lak} فيهم؟`,
+                reply: `${activeDoctorCandidate} مش موجود في اليوم ده، مواعيده المتاحة هي (أيام ${workingDayCheck.workingDaysAr})، تحب${gp.isFemale ? 'ي' : ''} أحجز ${gp.lak} فيهم؟`,
                 reasoningSteps,
                 state
             };
@@ -1417,7 +1978,12 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
     // -------------------------------------------------------------
     const lower = normalizedText.toLowerCase();
     const hasBookingIntent = lower.includes('احجز') || lower.includes('حجز') || lower.includes('كشف') || 
-                             effectiveDate || extractedTime || isAvailabilityAsk || state.bookingDraft.date;
+                             lower.includes('عايز') || lower.includes('عاوز') || lower.includes('محتاج') ||
+                             lower.includes('حول') || lower.includes('هحول') || lower.includes('غيرت') ||
+                             Boolean(extractedDoc?.doctor || extractedDoc?.specialty) ||
+                             Boolean(isDoctorOrSpecialtySwitch) ||
+                             Boolean(effectiveDate) || Boolean(extractedTime) || Boolean(isAvailabilityAsk) || 
+                             Boolean(state.bookingDraft?.date);
 
     if (!hasBookingIntent) {
         if (lower.includes('سلام عليكم') || lower.includes('السلام عليكم')) {
@@ -1509,34 +2075,64 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
                            (state.bookingDraft && state.bookingDraft.isServiceCatalogMatch);
 
     if (isServiceMatch && !effectiveDate && !extractedTime) {
-        const docName = (extractedDoc && extractedDoc.doctor) || state.bookingDraft.doctor || 'د. أحمد شريف';
-        const docSchedule = appointmentService.findDoctorSchedule(docName);
-        const slotsSummary = appointmentService.getDoctorAvailableSlotsSummary(docSchedule.id);
-        const category = (extractedDoc && extractedDoc.category) || state.bookingDraft.category || 'طب الأسنان';
-        const serviceName = (extractedDoc && extractedDoc.serviceName) || state.bookingDraft.serviceName || 'تبييض الأسنان بالليزر';
-        const specialtyHeader = `${category} - ${serviceName}`;
+        const docName = (extractedDoc && extractedDoc.doctor) || (state.bookingDraft && state.bookingDraft.doctor);
+        if (docName) {
+            const docSchedule = appointmentService.findDoctorSchedule(docName);
+            if (docSchedule) {
+                const slotsSummary = appointmentService.getDoctorAvailableSlotsSummary(docSchedule.id);
+                const deptTitle = docSchedule.departmentTitle || docSchedule.department || 'العيادة';
 
-        const reply = `مواعيد ${docName} (${specialtyHeader}) المتاحة هي: ${slotsSummary}. تحب${gp.isFemale ? 'ي' : ''} أحجزلك ميعاد فيهم؟`;
-        return {
-            reply,
-            reasoningSteps: [
-                `استعلام دليل الخدمات أولاً (Service Catalog Lookup First) للخدمة (${serviceName})`,
-                `تطبيق قفل التخصص (Category Lock): قفل ${category} حصراً مع ${docName} ومنع التوجيه الخاطئ للجلدية رغم وجود كلمة ليزر`,
-                `استرجاع مواعيد الطبيب حصراً وعرضها وفق نمط الاستجابة المطلوب (Fallback Response Pattern)`
-            ],
-            state,
-            suggestedSlots: docSchedule.slotsByDay[docSchedule.workingDayIndices[0]] || []
-        };
+                let specialtyHeader = deptTitle;
+                if (extractedDoc && extractedDoc.assignedDoctorId === docSchedule.id && extractedDoc.serviceName) {
+                    specialtyHeader = (extractedDoc.serviceName === 'كشف باطنة وقلب' || extractedDoc.serviceName === 'كشف عيون وفحص نظر' || extractedDoc.serviceName === 'كشف أسنان' || extractedDoc.serviceName === 'كشف جلدية')
+                        ? deptTitle
+                        : `${extractedDoc.category} - ${extractedDoc.serviceName}`;
+                } else if (state.bookingDraft && state.bookingDraft.assignedDoctorId === docSchedule.id && state.bookingDraft.serviceName) {
+                    specialtyHeader = (state.bookingDraft.serviceName === 'كشف باطنة وقلب' || state.bookingDraft.serviceName === 'كشف عيون وفحص نظر' || state.bookingDraft.serviceName === 'كشف أسنان' || state.bookingDraft.serviceName === 'كشف جلدية')
+                        ? deptTitle
+                        : `${state.bookingDraft.category} - ${state.bookingDraft.serviceName}`;
+                }
+
+                const reply = `مواعيد ${docName} (${specialtyHeader}) المتاحة هي: ${slotsSummary}. تحب${gp.isFemale ? 'ي' : ''} أحجزلك ميعاد فيهم؟`;
+                return {
+                    reply,
+                    reasoningSteps: [
+                        `استعلام دليل الخدمات أولاً (Service Catalog Lookup First) للخدمة (${specialtyHeader})`,
+                        `تطبيق قفل التخصص (Category Lock): قفل ${specialtyHeader} حصراً مع ${docName}`,
+                        `استرجاع مواعيد الطبيب حصراً وعرضها وفق نمط الاستجابة المطلوب (Fallback Response Pattern)`
+                    ],
+                    state,
+                    suggestedSlots: docSchedule.slotsByDay[docSchedule.workingDayIndices[0]] || []
+                };
+            }
+        }
     }
 
     // -------------------------------------------------------------
     // 11. CONVERSATION FLOW STATE MACHINE & AVAILABILITY ENGINE
-    // Step 1: Identify Service / Doctor
-    // Step 2: Confirm Target Date (Validated against working days)
-    // Step 3: Show Available Exact Slots OR Match Requested Time
-    // Step 4: Lock User Choice & Request Phone Number for Confirmation
+    // MANDATORY RULE: STRICT SLOT FILLING & CLARIFICATION
+    // Rule 1: NEVER assume or default to any doctor, specialty, or branch if user does not explicitly state it.
+    // Rule 2: If user expresses generic booking intent, STOP immediately. Do NOT list slots.
+    // Rule 3: Only invoke slot-fetching tools when specialty or doctor is explicitly provided.
     // -------------------------------------------------------------
-    const activeDoctor = state.bookingDraft.doctor || 'د. أحمد شريف';
+    const activeDoctor = (extractedDoc && extractedDoc.doctor) || (state.bookingDraft && state.bookingDraft.doctor);
+
+    if (!activeDoctor) {
+        reasoningSteps.push('قاعدة إلزامية (Strict Slot Filling): لم يتم تحديد التخصص أو الطبيب صراحة. التوقف الفوري عن جلب المواعيد وسؤال المريض عن التخصص المطلوب.');
+
+        if (effectiveDate) {
+            state.bookingDraft = state.bookingDraft || {};
+            state.bookingDraft.date = effectiveDate.label;
+            state.bookingDraft.dateStr = effectiveDate.dateStr;
+        }
+
+        return {
+            reply: getUniversalGenericBookingReply(gp, honorific, isNewNameIntroduction),
+            reasoningSteps,
+            state
+        };
+    }
+
     const activeDateLabel = effectiveDate ? effectiveDate.label : (state.bookingDraft ? state.bookingDraft.date : null);
     const activeTime = extractedTime || (state.bookingDraft ? state.bookingDraft.time : null);
 
@@ -1587,8 +2183,12 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
             state.awaitingWaitlist = true;
             reasoningSteps.push(`الموعد المطلوب محجوز بالكامل: تقديم المواعيد البديلة وعرض قائمة الانتظار`);
 
+            const slotsText = availCheck.nearestAvailable && availCheck.nearestAvailable.length > 0
+                ? availCheck.nearestAvailable.join(' أو ')
+                : 'مواعيد بديلة';
+
             return {
-                reply: `بعتذر لحضرتك جداً، ميعاد ${activeTime} محجوز بالكامل. متاح بدلاً منه: ${availCheck.nearestAvailable?.join(' أو ')}، تحب${gp.isFemale ? 'ي' : ''} أحجز لحضرتك فيهم ولا أسجل رقمك في قائمة الانتظار ونتواصل مع${gp.isFemale ? 'اكِ' : 'اك'} أول ما يفضى؟`,
+                reply: `نعتذر لحضرتك جداً، الميعاد محجوز بالكامل. متاح بدلاً منه: ${slotsText}.. تحب${gp.isFemale ? 'ي' : ''} أحجز لحضرتك فيهم ولا أسجل رقم الواتساب في قائمة الانتظار ونتواصل مع${gp.isFemale ? 'اكِ' : 'اك'} أول ما يفضى؟`,
                 suggestedSlots: availCheck.nearestAvailable || [],
                 reasoningSteps,
                 state
@@ -1671,7 +2271,14 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
         const introGreeting = isNewNameIntroduction ? `${nameSalutation}، ${gp.nawwart} عيادتنا! ` : '';
         let reply;
         if (state.bookingDraft && state.bookingDraft.isServiceCatalogMatch) {
-            const specialtyHeader = state.bookingDraft.specialty || 'طب الأسنان - تبييض الأسنان بالليزر';
+            const docSchedule = appointmentService.findDoctorSchedule(activeDoctor);
+            const deptTitle = docSchedule.departmentTitle || docSchedule.department || 'العيادة';
+            let specialtyHeader = deptTitle;
+            if (state.bookingDraft.assignedDoctorId === docSchedule.id && state.bookingDraft.serviceName) {
+                specialtyHeader = (state.bookingDraft.serviceName === 'كشف باطنة وقلب' || state.bookingDraft.serviceName === 'كشف عيون وفحص نظر' || state.bookingDraft.serviceName === 'كشف أسنان' || state.bookingDraft.serviceName === 'كشف جلدية')
+                    ? deptTitle
+                    : `${state.bookingDraft.category} - ${state.bookingDraft.serviceName}`;
+            }
             reply = `${introGreeting}${clarificationGreeting || ''}مواعيد ${activeDoctor} (${specialtyHeader}) المتاحة هي: ${openSlots.join('، ')}. تحب${gp.isFemale ? 'ي' : ''} أحجزلك ميعاد فيهم؟`;
         } else {
             reply = `${introGreeting}${clarificationGreeting || ''}المواعيد المتاحة مع ${activeDoctor} ${activeDateLabel} هي:\n${slotsText}\n\nتحب${gp.isFemale ? 'ي' : ''} أحجز لحضرتك ميعاد فيهم؟`;
@@ -1690,7 +2297,13 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
         if (state.bookingDraft && state.bookingDraft.isServiceCatalogMatch) {
             const docSchedule = appointmentService.findDoctorSchedule(activeDoctor);
             const slotsSummary = appointmentService.getDoctorAvailableSlotsSummary(docSchedule.id);
-            const specialtyHeader = state.bookingDraft.specialty || 'طب الأسنان - تبييض الأسنان بالليزر';
+            const deptTitle = docSchedule.departmentTitle || docSchedule.department || 'العيادة';
+            let specialtyHeader = deptTitle;
+            if (state.bookingDraft.assignedDoctorId === docSchedule.id && state.bookingDraft.serviceName) {
+                specialtyHeader = (state.bookingDraft.serviceName === 'كشف باطنة وقلب' || state.bookingDraft.serviceName === 'كشف عيون وفحص نظر' || state.bookingDraft.serviceName === 'كشف أسنان' || state.bookingDraft.serviceName === 'كشف جلدية')
+                    ? deptTitle
+                    : `${state.bookingDraft.category} - ${state.bookingDraft.serviceName}`;
+            }
             return {
                 reply: `مواعيد ${activeDoctor} (${specialtyHeader}) المتاحة هي: ${slotsSummary}. تحب${gp.isFemale ? 'ي' : ''} أحجزلك ميعاد فيهم؟`,
                 reasoningSteps: [`عرض مواعيد الطبيب حصراً للخدمة المحددة (${specialtyHeader})`],
@@ -1700,7 +2313,8 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
         }
 
         const docSchedule = appointmentService.findDoctorSchedule(activeDoctor);
-        const daysPrompt = docSchedule ? `مواعيد ${activeDoctor} (${docSchedule.specialty}) في العيادة هي (أيام ${docSchedule.workingDaysAr}) من ${docSchedule.hoursAr}. ` : '';
+        const deptTitle = docSchedule ? (docSchedule.departmentTitle || docSchedule.department || docSchedule.specialty) : '';
+        const daysPrompt = docSchedule ? `مواعيد ${activeDoctor} (${deptTitle}) في العيادة هي (أيام ${docSchedule.workingDaysAr}) من ${docSchedule.hoursAr}. ` : '';
         const nameSalutation = gp.isFemale ? `${gp.ahlanBek} ${honorific}` : `${gp.ahlanBek} يا ${honorific}`;
         const introGreeting = isNewNameIntroduction ? `${nameSalutation}، ${gp.nawwart} عيادتنا! ${gp.habeb} ${gp.tostafser} عن المواعيد؟ ` : '';
         return {

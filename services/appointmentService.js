@@ -29,8 +29,13 @@ const BRANCHES = {
 const DOCTORS_SCHEDULE = {
     'dr_ahmed': {
         id: 'dr_ahmed',
+        doctor_id: 'dr_ahmed',
+        specialty_id: 'dentistry',
         name: 'د. أحمد شريف',
         specialty: 'استشاري طب وجراحة الأسنان',
+        department: 'طب وجراحة الأسنان',
+        departmentTitle: 'الأسنان',
+        category: 'طب الأسنان',
         branches: ['damanhour', 'alex'],
         workingDayIndices: [6, 1, 3], // Saturday (6), Monday (1), Wednesday (3)
         workingDaysAr: 'السبت، الإثنين، والأربعاء',
@@ -43,8 +48,13 @@ const DOCTORS_SCHEDULE = {
     },
     'dr_sara': {
         id: 'dr_sara',
+        doctor_id: 'dr_sara',
+        specialty_id: 'dermatology',
         name: 'د. سارة محمود',
         specialty: 'أخصائية الجلدية والتجميل والليزر',
+        department: 'الجلدية والتجميل والليزر',
+        departmentTitle: 'الجلدية والليزر',
+        category: 'الجلدية والتجميل',
         branches: ['damanhour'],
         workingDayIndices: [0, 2, 4], // Sunday (0), Tuesday (2), Thursday (4)
         workingDaysAr: 'الأحد، الثلاثاء، والخميس',
@@ -57,8 +67,13 @@ const DOCTORS_SCHEDULE = {
     },
     'dr_hossam': {
         id: 'dr_hossam',
+        doctor_id: 'dr_hossam',
+        specialty_id: 'cardiology_internal',
         name: 'د. حسام فتحي',
         specialty: 'استشاري الأمراض الباطنة والقلب',
+        department: 'أمراض الباطنة والقلب',
+        departmentTitle: 'الباطنة والقلب',
+        category: 'أمراض الباطنة والقلب',
         branches: ['alex'],
         workingDayIndices: [6, 0, 1, 2, 3, 4], // Saturday through Thursday (Friday off)
         workingDaysAr: 'السبت إلى الخميس (ما عدا الجمعة)',
@@ -74,8 +89,13 @@ const DOCTORS_SCHEDULE = {
     },
     'dr_mariam': {
         id: 'dr_mariam',
+        doctor_id: 'dr_mariam',
+        specialty_id: 'ophthalmology',
         name: 'د. مريم نبيل',
         specialty: 'أخصائية طب وجراحة العيون',
+        department: 'طب وجراحة العيون',
+        departmentTitle: 'العيون',
+        category: 'طب وجراحة العيون',
         branches: ['alex'],
         workingDayIndices: [0, 2, 4], // Sunday (0), Tuesday (2), Thursday (4)
         workingDaysAr: 'الأحد، الثلاثاء، والخميس',
@@ -90,8 +110,11 @@ const DOCTORS_SCHEDULE = {
 
 const DOCTORS = Object.values(DOCTORS_SCHEDULE).map(d => ({
     id: d.id,
+    doctor_id: d.id,
     name: d.name,
     specialty: d.specialty,
+    department: d.department,
+    departmentTitle: d.departmentTitle,
     schedule: `${d.workingDaysAr} من ${d.hoursAr}`
 }));
 
@@ -167,7 +190,9 @@ function lookupService(query) {
  * Get formatted summary of all available slots across working days for a doctor
  */
 function getDoctorAvailableSlotsSummary(doctorId) {
-    const doc = DOCTORS_SCHEDULE[doctorId] || DOCTORS_SCHEDULE['dr_ahmed'];
+    if (!doctorId) return 'NEEDS_DOCTOR_SELECTION';
+    const doc = DOCTORS_SCHEDULE[doctorId] || findDoctorSchedule(doctorId);
+    if (!doc) return 'NEEDS_DOCTOR_SELECTION';
     const parts = [];
     const dayNames = { 0: 'الأحد', 1: 'الإثنين', 2: 'الثلاثاء', 3: 'الأربعاء', 4: 'الخميس', 5: 'الجمعة', 6: 'السبت' };
     for (const dayIdx of doc.workingDayIndices) {
@@ -184,9 +209,10 @@ function getDoctorAvailableSlotsSummary(doctorId) {
  * Strictly follows Entity Priority Rules:
  * - Rule 1 (Explicit Doctor Mention): If doctor name specified, filter ONLY for that doctor.
  * - Rule 2 (Category/Specialty Lock): 'تبييض الأسنان' strictly 'طب الأسنان' (never Dermatology).
+ * - Rule 3 (No Default Assumption): Return null if doctorNameOrSpecialty is not specified or not recognized.
  */
 function findDoctorSchedule(doctorNameOrSpecialty) {
-    if (!doctorNameOrSpecialty) return DOCTORS_SCHEDULE['dr_ahmed'];
+    if (!doctorNameOrSpecialty) return null;
     const clean = doctorNameOrSpecialty.trim().toLowerCase();
 
     // Rule 1: Explicit doctor name mention takes highest priority
@@ -239,7 +265,7 @@ function findDoctorSchedule(doctorNameOrSpecialty) {
         return DOCTORS_SCHEDULE['dr_mariam'];
     }
 
-    return DOCTORS_SCHEDULE['dr_ahmed'];
+    return null;
 }
 
 /**
@@ -385,12 +411,27 @@ function getNextWorkingDay(doctorInfo, fromDate = new Date()) {
  * Strictly cross-references doctor working days and available slots.
  * Evaluates remaining available slots for today and warns on expired/finished slots.
  */
-async function checkAvailability({ date, doctor = 'د. أحمد شريف', time, currentDate = new Date() }) {
+async function checkAvailability({ date, doctor, time, currentDate = new Date() }) {
     if (!date) {
         throw new Error('check_availability requires [date]');
     }
 
+    if (!doctor) {
+        return {
+            available: false,
+            error: 'DOCTOR_OR_SPECIALTY_REQUIRED',
+            message: 'يرجى تحديد الطبيب أو التخصص أولاً لعرض المواعيد المتاحة.'
+        };
+    }
+
     const doctorInfo = findDoctorSchedule(doctor);
+    if (!doctorInfo) {
+        return {
+            available: false,
+            error: 'DOCTOR_NOT_FOUND',
+            message: `لم يتم العثور على الطبيب أو التخصص المطلوب: ${doctor}`
+        };
+    }
     const dayIndex = getDayIndexFromDate(date);
     const normDate = normalizeDate(date);
     const isToday = isDateToday(date, currentDate);
@@ -578,10 +619,10 @@ async function checkAvailability({ date, doctor = 'د. أحمد شريف', time,
  * Requires [date, time, phone_number].
  * Books the appointment and encrypts sensitive patient information.
  */
-async function bookAppointment({ date, time, phone_number, phone, patientName = 'المريض', doctor = 'د. أحمد شريف', reason = 'كشف عام' }) {
+async function bookAppointment({ date, time, phone_number, phone, patientName = 'المريض', doctor, reason = 'كشف عام' }) {
     const contactPhone = phone_number || phone;
-    if (!date || !time || !contactPhone) {
-        throw new Error('book_appointment requires [date, time, phone_number]');
+    if (!date || !time || !contactPhone || !doctor) {
+        throw new Error('book_appointment requires [date, time, phone_number, doctor]');
     }
 
     const bookingId = 'APT-' + Math.random().toString(36).substring(2, 9).toUpperCase();
@@ -590,7 +631,7 @@ async function bookAppointment({ date, time, phone_number, phone, patientName = 
 
     const record = {
         id: bookingId,
-        doctor: doctor || 'د. أحمد شريف',
+        doctor: doctor,
         dateStr: date || 'أقرب موعد متاح',
         timeStr: time || '4:00 م',
         normalizedDate: normDate,
@@ -620,7 +661,7 @@ async function bookAppointment({ date, time, phone_number, phone, patientName = 
 
             const appointment = new Appointment({
                 patient: patient._id,
-                doctor: doctor || 'د. أحمد شريف',
+                doctor: doctor,
                 date: new Date(),
                 time: time || '4:00 PM',
                 status: 'scheduled',
@@ -640,7 +681,7 @@ async function bookAppointment({ date, time, phone_number, phone, patientName = 
         bookingId,
         patientName,
         phone: contactPhone,
-        doctor: doctor || 'د. أحمد شريف',
+        doctor: doctor,
         date: date || 'الميعاد المختار',
         time: time || 'الوقت المختار',
         status: 'confirmed',
@@ -652,16 +693,16 @@ async function bookAppointment({ date, time, phone_number, phone, patientName = 
  * Tool 3: add_to_waitlist
  * Registers patient on the waitlist with encrypted sensitive info.
  */
-async function addToWaitlist({ patientName, phone, doctor = 'د. أحمد شريف', requestedDate, requestedTime, notes }) {
-    if (!patientName || !phone) {
-        throw new Error('اسم المريض ورقم الهاتف مطلوبين للإضافة لقائمة الانتظار');
+async function addToWaitlist({ patientName, phone, doctor, requestedDate, requestedTime, notes }) {
+    if (!patientName || !phone || !doctor) {
+        throw new Error('اسم المريض ورقم الهاتف والطبيب مطلوبين للإضافة لقائمة الانتظار');
     }
 
     const waitlistId = 'WTL-' + Math.random().toString(36).substring(2, 9).toUpperCase();
 
     const record = {
         id: waitlistId,
-        doctor: doctor || 'د. أحمد شريف',
+        doctor: doctor,
         requestedDate: requestedDate || 'يوم الإثنين',
         requestedTime: requestedTime || '4:30 مساءً',
         patientNameEnc: encrypt(patientName),
@@ -677,7 +718,7 @@ async function addToWaitlist({ patientName, phone, doctor = 'د. أحمد شري
             const waitlistEntry = new Waitlist({
                 patientName: patientName,
                 phone: phone,
-                doctor: doctor || 'د. أحمد شريف',
+                doctor: doctor,
                 requestedDate: requestedDate || 'يوم الإثنين',
                 requestedTime: requestedTime || '4:30 مساءً',
                 status: 'waiting',
@@ -696,7 +737,7 @@ async function addToWaitlist({ patientName, phone, doctor = 'د. أحمد شري
         waitlistId,
         patientName,
         phone,
-        doctor: doctor || 'د. أحمد شريف',
+        doctor: doctor,
         requestedDate: requestedDate || 'يوم الإثنين',
         requestedTime: requestedTime || '4:30 مساءً',
         status: 'waiting',
@@ -737,6 +778,14 @@ async function getAllWaitlist() {
     }));
 }
 
+/**
+ * Dynamically fetch the correct department title corresponding to a doctor
+ */
+function getDoctorDepartmentTitle(doctorNameOrId) {
+    const doc = findDoctorSchedule(doctorNameOrId);
+    return doc ? (doc.departmentTitle || doc.department || doc.specialty) : 'العيادة';
+}
+
 module.exports = {
     DOCTORS,
     DOCTORS_SCHEDULE,
@@ -744,6 +793,7 @@ module.exports = {
     lookupService,
     getDoctorAvailableSlotsSummary,
     findDoctorSchedule,
+    getDoctorDepartmentTitle,
     getDayIndexFromDate,
     timeToMinutes,
     checkAvailability,
