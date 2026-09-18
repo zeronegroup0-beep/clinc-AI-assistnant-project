@@ -1387,7 +1387,24 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
                         requestedTime: state.waitlistSlot?.time || '4:30 مساءً',
                         notes: 'طلب إخطار فوري عند توفر الموعد'
                     });
-                    const reply = `تمام يا ${honorific}، تم تسجيل طلبك بالرقم (${state.patientPhone}) في قائمة الانتظار لـ ${docName}. أول ما يفضى ميعاد هنتواصل مع حضرتك فوراً على الواتساب.`;
+                    let reply;
+                    if (state.multiDoctorContext && state.multiDoctorContext.remainingDoctors && state.multiDoctorContext.remainingDoctors.length > 0) {
+                        const nextDocId = state.multiDoctorContext.remainingDoctors[0];
+                        const nextDoc = appointmentService.DOCTORS_SCHEDULE[nextDocId];
+                        const nextDeptTitle = nextDoc ? (nextDoc.departmentTitle || nextDoc.department || nextDoc.specialty) : '';
+                        state.multiDoctorContext.step = 'AWAITING_NEXT_DOCTOR_DECISION';
+
+                        reply = `تمام يا ${honorific}، تم تسجيل طلبك بالرقم (${state.patientPhone}) في قائمة الانتظار لـ ${docName}. أول ما يفضى ميعاد هنتواصل مع حضرتك فوراً على الواتساب. 🌸\n\nوبالنسبة لـ ${nextDoc.name} (${nextDeptTitle})، تحب نحدد ميعاد كشفه دلوقتي؟`;
+                    } else {
+                        reply = `تمام يا ${honorific}، تم تسجيل طلبك بالرقم (${state.patientPhone}) في قائمة الانتظار لـ ${docName}. أول ما يفضى ميعاد هنتواصل مع حضرتك فوراً على الواتساب. 🌸\n\nتحب${gp.isFemale ? 'ي' : ''} نحجز لحضرتك كشف تاني مع أي دكتور أو تخصص تاني في العيادة، ولا نكتفي بالتسجيل ده؟`;
+
+                        state.postBookingFlow = {
+                            step: 'AWAITING_ADDITIONAL_DECISION',
+                            lastDoctor: docName,
+                            isWaitlist: true
+                        };
+                    }
+
                     delete state.bookingDraft;
                     delete state.waitlistSlot;
                     delete state.awaitingWaitlist;
@@ -1623,10 +1640,13 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
 
         if (isDeclineOrConclude) {
             reasoningSteps.push('إنهاء جلسة الحجز بطلب المريض وتأكيد سلامته');
-            delete state.postBookingFlow;
             const patientGreeting = honorific ? ` يا ${honorific}` : ' يا فندم';
+            const closeReply = state.postBookingFlow?.isWaitlist
+                ? `العفو${patientGreeting}! كده طلبك مسجل بنجاح في قائمة الانتظار، وأول ما يتوفر ميعاد هنتواصل مع حضرتك فوراً على الواتساب. نورتنا في العيادة ولو احتجت أي استفسار إحنا في خدمتك دائماً 🌸`
+                : `العفو${patientGreeting}! كده حجز حضرتك مؤكد بالكامل ونورتنا في العيادة. لو احتجت أي حجز أو استفسار في أي وقت تاني إحنا في خدمتك دائماً 🌸`;
+            delete state.postBookingFlow;
             return {
-                reply: `العفو${patientGreeting}! كده حجز حضرتك مؤكد بالكامل ونورتنا في العيادة. لو احتجت أي حجز أو استفسار في أي وقت تاني إحنا في خدمتك دائماً 🌸`,
+                reply: closeReply,
                 reasoningSteps,
                 state
             };
@@ -1909,7 +1929,23 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
                     notes: 'طلب إخطار فوري عند توفر الموعد'
                 });
 
-                const reply = `تمام يا ${userTitle}، تم تسجيل طلبك بالرقم (${phoneToUse}) في قائمة الانتظار لـ ${docName}. أول ما يفضى ميعاد هنتواصل مع حضرتك فوراً على الواتساب.`;
+                let reply;
+                if (state.multiDoctorContext && state.multiDoctorContext.remainingDoctors && state.multiDoctorContext.remainingDoctors.length > 0) {
+                    const nextDocId = state.multiDoctorContext.remainingDoctors[0];
+                    const nextDoc = appointmentService.DOCTORS_SCHEDULE[nextDocId];
+                    const nextDeptTitle = nextDoc ? (nextDoc.departmentTitle || nextDoc.department || nextDoc.specialty) : '';
+                    state.multiDoctorContext.step = 'AWAITING_NEXT_DOCTOR_DECISION';
+
+                    reply = `تمام يا ${userTitle}، تم تسجيل طلبك بالرقم (${phoneToUse}) في قائمة الانتظار لـ ${docName}. أول ما يفضى ميعاد هنتواصل مع حضرتك فوراً على الواتساب. 🌸\n\nوبالنسبة لـ ${nextDoc.name} (${nextDeptTitle})، تحب نحدد ميعاد كشفه دلوقتي؟`;
+                } else {
+                    reply = `تمام يا ${userTitle}، تم تسجيل طلبك بالرقم (${phoneToUse}) في قائمة الانتظار لـ ${docName}. أول ما يفضى ميعاد هنتواصل مع حضرتك فوراً على الواتساب. 🌸\n\nتحب${gp.isFemale ? 'ي' : ''} نحجز لحضرتك كشف تاني مع أي دكتور أو تخصص تاني في العيادة، ولا نكتفي بالتسجيل ده؟`;
+
+                    state.postBookingFlow = {
+                        step: 'AWAITING_ADDITIONAL_DECISION',
+                        lastDoctor: docName,
+                        isWaitlist: true
+                    };
+                }
 
                 const card = {
                     type: 'waitlist_confirmed',
