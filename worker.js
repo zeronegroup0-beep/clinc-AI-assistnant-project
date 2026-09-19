@@ -1,3 +1,6 @@
+import receptionistAgent from './services/receptionistAgent.js';
+import appointmentService from './services/appointmentService.js';
+
 export default {
   async fetch(request, env) {
     try {
@@ -44,12 +47,88 @@ export default {
           });
         }
 
-        // Informative response if BACKEND_API_URL is not yet set
-        return new Response(JSON.stringify({
-          success: false,
-          message: 'لم يتم ربط رابط خادم الـ API بعد. يرجى ضبط BACKEND_API_URL في إعدادات Cloudflare Workers (مثل رابط Render أو Railway أو Cloudflare Tunnel).'
-        }), {
-          status: 503,
+        // Direct Serverless Execution inside Cloudflare Worker (Fallback if no external backend URL is provided)
+        if (url.pathname === '/api/chat' && request.method === 'POST') {
+          const body = await request.json().catch(() => ({}));
+          const { message, sessionId, sessionData = {} } = body;
+
+          if (!message || typeof message !== 'string') {
+            return new Response(JSON.stringify({
+              success: false,
+              message: 'رسالة المحادثة مطلوبة'
+            }), {
+              status: 400,
+              headers: {
+                'Content-Type': 'application/json; charset=utf-8',
+                'Access-Control-Allow-Origin': '*'
+              }
+            });
+          }
+
+          const effectiveSessionId = (sessionId && sessionId !== 'default_session')
+            ? sessionId
+            : 'session_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
+
+          const currentDate = new Date();
+
+          const result = await receptionistAgent.processChatMessage({
+            message,
+            sessionId: effectiveSessionId,
+            sessionData: sessionData || {},
+            currentDate
+          });
+
+          return new Response(JSON.stringify({
+            success: true,
+            sessionId: effectiveSessionId,
+            reply: result.reply,
+            reasoningSteps: result.reasoningSteps || [],
+            state: result.state,
+            card: result.card || null,
+            suggestedSlots: result.suggestedSlots || []
+          }), {
+            status: 200,
+            headers: {
+              'Content-Type': 'application/json; charset=utf-8',
+              'Access-Control-Allow-Origin': '*'
+            }
+          });
+        }
+
+        if (url.pathname === '/api/appointments' && request.method === 'GET') {
+          const apps = await appointmentService.getAllAppointments();
+          return new Response(JSON.stringify({ success: true, count: apps.length, data: apps }), {
+            status: 200,
+            headers: {
+              'Content-Type': 'application/json; charset=utf-8',
+              'Access-Control-Allow-Origin': '*'
+            }
+          });
+        }
+
+        if (url.pathname === '/api/waitlist' && request.method === 'GET') {
+          const wl = await appointmentService.getWaitlist();
+          return new Response(JSON.stringify({ success: true, count: wl.length, data: wl }), {
+            status: 200,
+            headers: {
+              'Content-Type': 'application/json; charset=utf-8',
+              'Access-Control-Allow-Origin': '*'
+            }
+          });
+        }
+
+        if (url.pathname === '/api/doctors' && request.method === 'GET') {
+          return new Response(JSON.stringify({ success: true, data: appointmentService.DOCTORS_SCHEDULE }), {
+            status: 200,
+            headers: {
+              'Content-Type': 'application/json; charset=utf-8',
+              'Access-Control-Allow-Origin': '*'
+            }
+          });
+        }
+
+        return new Response(JSON.stringify({ success: false, message: 'Endpoint not found' }), {
+          status: 404,
           headers: {
             'Content-Type': 'application/json; charset=utf-8',
             'Access-Control-Allow-Origin': '*'

@@ -3,6 +3,7 @@
   "name": "clinc-ai-assistnant-project",
   "main": "worker.js",
   "compatibility_date": "2026-03-01",
+  "compatibility_flags": ["nodejs_compat"],
   "build": {
     "command": "npm --prefix frontend install && npm --prefix frontend run build"
   },
