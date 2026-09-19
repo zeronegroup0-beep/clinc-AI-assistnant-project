@@ -299,7 +299,14 @@ function resolveSlotFromSelection(text, state = {}) {
  */
 function isDoctorSelectionAwaited(state = {}) {
     if (state.awaitingDoctorSelection) return true;
-    if (state.multiDoctorContext && (state.multiDoctorContext.step === 'AWAITING_FIRST_DOCTOR_CHOICE' || state.multiDoctorContext.step === 'AWAITING_ADDITIONAL_DECISION')) {
+    if (state.multiDoctorContext && (
+        state.multiDoctorContext.step === 'AWAITING_FIRST_DOCTOR_CHOICE' ||
+        state.multiDoctorContext.step === 'AWAITING_ADDITIONAL_DECISION' ||
+        state.multiDoctorContext.step === 'AWAITING_REMAINING_DOCTOR_SELECTION'
+    )) {
+        return true;
+    }
+    if (state.postBookingFlow && state.postBookingFlow.step === 'AWAITING_ADDITIONAL_DECISION') {
         return true;
     }
     if (state.history && Array.isArray(state.history) && state.history.length > 0) {
@@ -310,6 +317,8 @@ function isDoctorSelectionAwaited(state = {}) {
                 t.includes('في أي تخصص أو مع أي دكتور') ||
                 t.includes('تختار بالاسم أو برقم الدكتور') ||
                 t.includes('تحب نبدأ نحجز لحضرتك مع مين الأول') ||
+                t.includes('تحب نبدأ بمين من باقي الاستشاريين') ||
+                t.includes('نكمل الحجز مع باقي الاستشاريين') ||
                 t.includes('تحب تكشف في أي تخصص') ||
                 t.includes('تحب تضيف حجز تاني مع استشاري تاني') ||
                 t.includes('عيادتنا بتوفر نخبة من أفضل الاستشاريين')) {
@@ -768,8 +777,16 @@ function resolveChosenDoctorFromMultiContext(text, multiContext, state = {}) {
     }
 
     return null;
-}
-
+}
+
+/**
+ * Resolve doctor selection specifically from remaining doctors list
+ */
+function resolveRemainingDoctorChoice(text, remainingDoctorIds, state = {}) {
+    if (!text || !remainingDoctorIds || remainingDoctorIds.length === 0) return null;
+    return resolveChosenDoctorFromMultiContext(text, { selectedDoctors: remainingDoctorIds }, state);
+}
+
 /**
  * Universal Generic Booking Regex / Intent Check
  * Checks if the message has generic booking intent keywords:
@@ -1876,6 +1893,95 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
         }
     }
 
+    // -------------------------------------------------------------
+    // MODULE 1.7.1.B: MULTI-DOCTOR REMAINING DOCTOR SELECTION HANDLER
+    // -------------------------------------------------------------
+    if (state.multiDoctorContext && state.multiDoctorContext.step === 'AWAITING_REMAINING_DOCTOR_SELECTION') {
+        const cleanLower = normalizedText.toLowerCase();
+        const isDeclineOrConclude = cleanLower.includes('لا خلاص') || cleanLower.includes('مش دلوقتي') ||
+                                    cleanLower.includes('مش دلوقت') || cleanLower.includes('كفاية') ||
+                                    cleanLower.includes('كفايه') || cleanLower.includes('لا شكرا') ||
+                                    cleanLower.includes('لا شكراً') || cleanLower.includes('مش عايز') ||
+                                    cleanLower.includes('مش عاوز') || cleanLower.includes('بعدين') ||
+                                    cleanLower.includes('نكتفي') || cleanLower.includes('كده تمام') ||
+                                    cleanLower.includes('تمام كده') || cleanLower.includes('شكرا') ||
+                                    cleanLower.includes('شكراً') || cleanLower === 'لا' ||
+                                    (cleanLower.startsWith('لا') && !cleanLower.includes('دكتور') && !cleanLower.includes('كشف'));
+
+        if (isDeclineOrConclude) {
+            reasoningSteps.push('إنهاء مسار الحجز المتعدد بطلب المريض');
+            const patientGreeting = honorific ? ` يا ${honorific}` : ' يا فندم';
+            delete state.multiDoctorContext;
+            delete state.postBookingFlow;
+            return {
+                reply: `العفو${patientGreeting}! تم حفظ رغبتك ونورتنا في العيادة، وفي انتظار تشريفك لموعدك المؤكد. لو احتجت أي حجز أو استفسار إحنا في خدمتك دائماً 🌸`,
+                reasoningSteps,
+                state
+            };
+        }
+
+        const isWantsDifferentDoctor = cleanLower.includes('دكتور تاني') || cleanLower.includes('دكتور ثاني') ||
+                                       cleanLower.includes('حد تاني') || cleanLower.includes('تخصص تاني') ||
+                                       cleanLower.includes('تخصص ثاني') || cleanLower.includes('طبيب تاني') ||
+                                       cleanLower.includes('غير الدكتور') || cleanLower.includes('دكتور مختلف') ||
+                                       cleanLower.includes('تاني خالص') || cleanLower.includes('ثاني خالص');
+
+        if (isWantsDifferentDoctor) {
+            reasoningSteps.push('المسار المتعدد: المريض يرغب في اختيار استشاري آخر خارج القائمة المتبقية.');
+            const bookedIds = (state.multiDoctorContext?.bookedAppointments || []).map(b => b.doctorId);
+            const availableDocs = Object.values(appointmentService.DOCTORS_SCHEDULE).filter(d => !bookedIds.includes(d.id));
+            const listText = availableDocs.map(d => `• ${d.name} (${d.specialty})`).join('\n');
+            delete state.multiDoctorContext;
+            delete state.postBookingFlow;
+            state.awaitingDoctorSelection = true;
+            return {
+                reply: `تمام جداً يا ${honorific || 'فندم'}! تحب${gp.isFemale ? 'ي' : ''} تختار${gp.isFemale ? 'ي' : ''} مين من استشاريينا المتاحين؟\n\n${listText}`,
+                reasoningSteps: ['عرض الاستشاريين المتاحين باستثناء المحجوزين مسبقاً'],
+                state
+            };
+        }
+
+        let chosenDoctorId = resolveRemainingDoctorChoice(normalizedText, state.multiDoctorContext.remainingDoctors, state);
+        if (!chosenDoctorId) {
+            const extDoc = extractDoctorAndSpecialty(normalizedText, state);
+            if (extDoc) chosenDoctorId = extDoc.doctor_id;
+        }
+
+        if (chosenDoctorId) {
+            const doc = appointmentService.DOCTORS_SCHEDULE[chosenDoctorId];
+            if (doc) {
+                state.doctor_id = chosenDoctorId;
+                state.specialty_id = doc.specialty_id;
+                state.bookingDraft = {
+                    doctor: doc.name,
+                    specialty: doc.specialty,
+                    doctor_id: chosenDoctorId,
+                    department: doc.department,
+                    departmentTitle: doc.departmentTitle
+                };
+                state.multiDoctorContext.activeDoctor = chosenDoctorId;
+                state.multiDoctorContext.remainingDoctors = (state.multiDoctorContext.remainingDoctors || []).filter(id => id !== chosenDoctorId);
+                state.multiDoctorContext.step = 'BOOKING_ACTIVE_DOCTOR';
+                delete state.postBookingFlow;
+
+                reasoningSteps.push(`المسار المتعدد: تم اختيار الطبيب التالي (${doc.name}) بنجاح`);
+
+                const effectiveDate = resolveDateFromText(normalizedText, currentDate);
+                const extractedTime = extractTimeSlot(normalizedText, state);
+
+                if (!effectiveDate && !extractedTime) {
+                    const pronoun = (chosenDoctorId === 'dr_sara' || chosenDoctorId === 'dr_mariam') ? 'مواعيدها' : 'مواعيده';
+                    const icon = chosenDoctorId === 'dr_ahmed' ? '🦷' : chosenDoctorId === 'dr_sara' ? '🌸' : chosenDoctorId === 'dr_hossam' ? '🩺' : '👁️';
+                    return {
+                        reply: `تمام جداً! هنبدأ بحجز ${doc.name} (${doc.departmentTitle || doc.department}) ${icon}\n${pronoun} في العيادة أيام (${doc.workingDaysAr}) من ${doc.hoursAr}.\n\nتحب${gp.isFemale ? 'ي' : ''} نحجز لحضرتك يوم إيه والساعة كام؟`,
+                        reasoningSteps,
+                        state
+                    };
+                }
+            }
+        }
+    }
+
     if (state.multiDoctorContext && (state.multiDoctorContext.step === 'AWAITING_SECOND_DOCTOR_SLOT' || state.multiDoctorContext.step === 'AWAITING_NEXT_DOCTOR_DECISION')) {
         const cleanLower = normalizedText.toLowerCase();
 
@@ -2089,41 +2195,137 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
             };
         }
 
-        // Check if user specified a doctor or specialty
-        const nextDoc = extractDoctorAndSpecialty(normalizedText, state);
-        if (nextDoc) {
+        const isWantsDifferentDoctor = cleanLower.includes('دكتور تاني') || cleanLower.includes('دكتور ثاني') ||
+                                       cleanLower.includes('حد تاني') || cleanLower.includes('تخصص تاني') ||
+                                       cleanLower.includes('تخصص ثاني') || cleanLower.includes('طبيب تاني') ||
+                                       cleanLower.includes('غير الدكتور') || cleanLower.includes('دكتور مختلف') ||
+                                       cleanLower.includes('تاني خالص') || cleanLower.includes('ثاني خالص');
+
+        if (isWantsDifferentDoctor) {
+            reasoningSteps.push('المسار المتعدد: المريض يرغب في اختيار استشاري آخر خارج القائمة السابقة.');
+            const bookedIds = (state.multiDoctorContext?.bookedAppointments || []).map(b => b.doctorId);
+            if (state.postBookingFlow?.lastDoctorId) bookedIds.push(state.postBookingFlow.lastDoctorId);
+            const availableDocs = Object.values(appointmentService.DOCTORS_SCHEDULE).filter(d => !bookedIds.includes(d.id));
+            const listText = availableDocs.map(d => `• ${d.name} (${d.specialty})`).join('\n');
+            delete state.multiDoctorContext;
             delete state.postBookingFlow;
-            delete state.bookingDraft;
-            delete state.pendingBooking;
-            delete state.suggestedAlternativeTime;
-            state.doctor_id = nextDoc.doctor_id;
-            state.specialty_id = nextDoc.specialty_id;
-            state.bookingDraft = {
-                doctor_id: nextDoc.doctor_id,
-                specialty_id: nextDoc.specialty_id,
-                doctor: nextDoc.doctor,
-                specialty: nextDoc.specialty,
-                department: nextDoc.department,
-                departmentTitle: nextDoc.departmentTitle
+            state.awaitingDoctorSelection = true;
+            return {
+                reply: `تمام جداً يا ${honorific || 'فندم'}! تحب${gp.isFemale ? 'ي' : ''} تختار${gp.isFemale ? 'ي' : ''} مين من استشاريينا المتاحين؟\n\n${listText}`,
+                reasoningSteps: ['عرض الاستشاريين المتاحين باستثناء المحجوزين مسبقاً'],
+                state
             };
-            reasoningSteps.push(`إضافة كشف إضافي: المريض اختار ${nextDoc.doctor} (${nextDoc.specialty})`);
-            const docSchedule = appointmentService.DOCTORS_SCHEDULE[nextDoc.doctor_id];
-            const pronoun = (nextDoc.doctor_id === 'dr_sara' || nextDoc.doctor_id === 'dr_mariam') ? 'مواعيدها' : 'مواعيده';
-            const icon = nextDoc.doctor_id === 'dr_ahmed' ? '🦷' : nextDoc.doctor_id === 'dr_sara' ? '🌸' : nextDoc.doctor_id === 'dr_hossam' ? '🩺' : '👁️';
-            const reply = `تنورنا يا فندم! هنبدأ حجز الكشف الثاني مع ${nextDoc.doctor} (${nextDoc.departmentTitle || nextDoc.department}) ${icon}\n${pronoun} في العيادة أيام (${docSchedule.workingDaysAr}) من ${docSchedule.hoursAr}.\n\nتحب${gp.isFemale ? 'ي' : ''} نحجز لحضرتك يوم إيه والساعة كام؟`;
-            return { reply, reasoningSteps, state };
+        }
+
+        // Check if user specified a doctor or specialty (from remaining list or general)
+        let chosenNextDoctorId = null;
+        if (state.multiDoctorContext && state.multiDoctorContext.remainingDoctors && state.multiDoctorContext.remainingDoctors.length > 0) {
+            chosenNextDoctorId = resolveRemainingDoctorChoice(normalizedText, state.multiDoctorContext.remainingDoctors, state);
+        }
+        if (!chosenNextDoctorId) {
+            const nextDocExt = extractDoctorAndSpecialty(normalizedText, state);
+            if (nextDocExt) chosenNextDoctorId = nextDocExt.doctor_id;
+        }
+
+        if (chosenNextDoctorId) {
+            const docSchedule = appointmentService.DOCTORS_SCHEDULE[chosenNextDoctorId];
+            if (docSchedule) {
+                delete state.postBookingFlow;
+                delete state.bookingDraft;
+                delete state.pendingBooking;
+                delete state.suggestedAlternativeTime;
+                state.doctor_id = chosenNextDoctorId;
+                state.specialty_id = docSchedule.specialty_id;
+                state.bookingDraft = {
+                    doctor_id: chosenNextDoctorId,
+                    specialty_id: docSchedule.specialty_id,
+                    doctor: docSchedule.name,
+                    specialty: docSchedule.specialty,
+                    department: docSchedule.department,
+                    departmentTitle: docSchedule.departmentTitle
+                };
+                if (state.multiDoctorContext) {
+                    state.multiDoctorContext.activeDoctor = chosenNextDoctorId;
+                    state.multiDoctorContext.remainingDoctors = (state.multiDoctorContext.remainingDoctors || []).filter(id => id !== chosenNextDoctorId);
+                    state.multiDoctorContext.step = 'BOOKING_ACTIVE_DOCTOR';
+                }
+                reasoningSteps.push(`إضافة كشف إضافي: المريض اختار ${docSchedule.name} (${docSchedule.specialty})`);
+                const pronoun = (chosenNextDoctorId === 'dr_sara' || chosenNextDoctorId === 'dr_mariam') ? 'مواعيدها' : 'مواعيده';
+                const icon = chosenNextDoctorId === 'dr_ahmed' ? '🦷' : chosenNextDoctorId === 'dr_sara' ? '🌸' : chosenNextDoctorId === 'dr_hossam' ? '🩺' : '👁️';
+
+                const effectiveDate = resolveDateFromText(normalizedText, currentDate);
+                const extractedTime = extractTimeSlot(normalizedText, state);
+                if (effectiveDate) {
+                    state.bookingDraft.date = effectiveDate.label;
+                    state.bookingDraft.dateStr = effectiveDate.dateStr;
+                }
+                if (extractedTime) {
+                    state.bookingDraft.time = extractedTime;
+                }
+
+                if (effectiveDate && extractedTime) {
+                    return processChatMessage({ message: '', sessionId, sessionData: state, currentDate });
+                }
+
+                const reply = `تنورنا يا فندم! هنبدأ حجز الكشف التالي مع ${docSchedule.name} (${docSchedule.departmentTitle || docSchedule.department}) ${icon}\n${pronoun} في العيادة أيام (${docSchedule.workingDaysAr}) من ${docSchedule.hoursAr}.\n\nتحب${gp.isFemale ? 'ي' : ''} نحجز لحضرتك يوم إيه والساعة كام؟`;
+                return { reply, reasoningSteps, state };
+            }
         }
 
         const isAffirmativeGeneric = cleanLower.includes('اه') || cleanLower.includes('ايوة') || cleanLower.includes('ايوه') ||
                                      cleanLower.includes('عايز') || cleanLower.includes('عاوز') || cleanLower.includes('حابب') ||
-                                     cleanLower.includes('كشف تاني') || cleanLower.includes('دكتور تاني') || cleanLower.includes('احجز تاني');
+                                     cleanLower.includes('كشف تاني') || cleanLower.includes('دكتور تاني') || cleanLower.includes('احجز تاني') ||
+                                     cleanLower.includes('نكمل') || cleanLower.includes('يلا');
         if (isAffirmativeGeneric) {
+            // Check if there are remaining doctors from multi-doctor context
+            if (state.multiDoctorContext && state.multiDoctorContext.remainingDoctors && state.multiDoctorContext.remainingDoctors.length > 0) {
+                const remainingDocs = state.multiDoctorContext.remainingDoctors
+                    .map(id => appointmentService.DOCTORS_SCHEDULE[id])
+                    .filter(Boolean);
+
+                if (remainingDocs.length === 1) {
+                    const singleDoc = remainingDocs[0];
+                    delete state.postBookingFlow;
+                    delete state.bookingDraft;
+                    delete state.pendingBooking;
+                    delete state.suggestedAlternativeTime;
+                    state.doctor_id = singleDoc.id;
+                    state.specialty_id = singleDoc.specialty_id;
+                    state.bookingDraft = {
+                        doctor_id: singleDoc.id,
+                        specialty_id: singleDoc.specialty_id,
+                        doctor: singleDoc.name,
+                        specialty: singleDoc.specialty,
+                        department: singleDoc.department,
+                        departmentTitle: singleDoc.departmentTitle
+                    };
+                    state.multiDoctorContext.activeDoctor = singleDoc.id;
+                    state.multiDoctorContext.remainingDoctors = [];
+                    state.multiDoctorContext.step = 'BOOKING_ACTIVE_DOCTOR';
+
+                    const pronoun = (singleDoc.id === 'dr_sara' || singleDoc.id === 'dr_mariam') ? 'مواعيدها' : 'مواعيده';
+                    const icon = singleDoc.id === 'dr_ahmed' ? '🦷' : singleDoc.id === 'dr_sara' ? '🌸' : singleDoc.id === 'dr_hossam' ? '🩺' : '👁️';
+                    const reply = `يشرفنا جداً يا ${honorific || 'فندم'}! هنبدأ على طول بحجز ${singleDoc.name} (${singleDoc.departmentTitle || singleDoc.department}) ${icon}\n${pronoun} في العيادة أيام (${singleDoc.workingDaysAr}) من ${singleDoc.hoursAr}.\n\nتحب${gp.isFemale ? 'ي' : ''} نحجز لحضرتك يوم إيه والساعة كام؟`;
+                    return { reply, reasoningSteps, state };
+                }
+
+                // More than 1 remaining doctor:
+                const optionsText = remainingDocs.map((d, idx) => `${idx + 1}. ${d.name} (${d.departmentTitle || d.specialty})`).join('\n');
+                state.multiDoctorContext.step = 'AWAITING_REMAINING_DOCTOR_SELECTION';
+                delete state.postBookingFlow;
+                const reply = `يشرفنا جداً يا ${honorific || 'فندم'}! تحب${gp.isFemale ? 'ي' : ''} نبدأ بمين من باقي الاستشاريين المطلوبين؟\n\n${optionsText}\n\n(ممكن تختار${gp.isFemale ? 'ي' : ''} بالاسم أو بالرقم، أو لو تحب${gp.isFemale ? 'ي' : ''} تختار${gp.isFemale ? 'ي' : ''} دكتور تاني أو نكتفي بالحجز بلغني فوراً 🌸)`;
+                return { reply, reasoningSteps, state };
+            }
+
             reasoningSteps.push('رغبة المريض في إضافة كشف ثانٍ دون تحديد: عرض الاستشاريين المتاحين');
+            const bookedDocName = state.postBookingFlow?.lastDoctor;
             delete state.postBookingFlow;
             delete state.bookingDraft;
             delete state.doctor_id;
             delete state.specialty_id;
-            const reply = `يشرفنا جداً يا ${honorific || 'فندم'}! تحب${gp.isFemale ? 'ي' : ''} تكشف${gp.isFemale ? 'ي' : ''} في أي تخصص أو مع أي دكتور من استشاريينا؟\n\n• د. سارة محمود (الجلدية والتجميل والليزر)\n• د. حسام فتحي (أمراض الباطنة والقلب)\n• د. مريم نبيل (طب وجراحة العيون)\n• د. أحمد شريف (طب وجراحة الأسنان)`;
+            const otherDocs = Object.values(appointmentService.DOCTORS_SCHEDULE).filter(d => d.name !== bookedDocName);
+            const otherList = otherDocs.map(d => `• ${d.name} (${d.specialty})`).join('\n');
+            const reply = `يشرفنا جداً يا ${honorific || 'فندم'}! تحب${gp.isFemale ? 'ي' : ''} تكشف${gp.isFemale ? 'ي' : ''} في أي تخصص أو مع أي دكتور من استشاريينا؟\n\n${otherList}`;
             return { reply, reasoningSteps, state };
         }
         delete state.postBookingFlow;
@@ -2375,11 +2577,43 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
                 phone: state.patientPhone
             };
 
-            const reply = `تم تأكيد حجز حضرتك يا ${honorific} بنجاح! ميعادك ${state.pendingBooking.date} الساعة ${state.pendingBooking.time} مع ${state.pendingBooking.doctor}. هنبعت لحضرتك رسالة تأكيد على الواتساب على رقم ${state.patientPhone}. ألف سلامة على حضرتك و${gp.tanawwar} في العيادة! 🌸\n\nتحب${gp.isFemale ? 'ي' : ''} نحجز لحضرتك كشف تاني مع أي دكتور أو تخصص تاني، ولا نكتفي بالحجز ده؟`;
+            // MULTI-DOCTOR JOURNEY TRACKING (Individual booking mode)
+            const bookedDocId = state.doctor_id || state.pendingBooking?.doctorId || state.multiDoctorContext?.activeDoctor;
+            let remainingDocs = [];
+
+            if (state.multiDoctorContext) {
+                state.multiDoctorContext.bookedAppointments = state.multiDoctorContext.bookedAppointments || [];
+                state.multiDoctorContext.bookedAppointments.push({
+                    bookingId: bookingResult.bookingId,
+                    doctor: state.pendingBooking.doctor,
+                    doctorId: bookedDocId,
+                    date: state.pendingBooking.date,
+                    time: state.pendingBooking.time
+                });
+                if (state.multiDoctorContext.remainingDoctors) {
+                    state.multiDoctorContext.remainingDoctors = state.multiDoctorContext.remainingDoctors.filter(id => id !== bookedDocId);
+                    remainingDocs = state.multiDoctorContext.remainingDoctors
+                        .map(id => appointmentService.DOCTORS_SCHEDULE[id])
+                        .filter(Boolean);
+                }
+            }
+
+            let additionalPrompt;
+            if (remainingDocs.length > 0) {
+                const remainingNames = remainingDocs.map(d => `${d.name} (${d.departmentTitle || d.specialty})`).join(' أو ');
+                additionalPrompt = `تحب${gp.isFemale ? 'ي' : ''} نكمل الحجز مع باقي الاستشاريين اللي اخترت${gp.isFemale ? 'يهم' : 'هم'} (${remainingNames})، ولا نكتفي بالحجز ده، أو تحب${gp.isFemale ? 'ي' : ''} تختار${gp.isFemale ? 'ي' : ''} دكتور تاني خالص؟`;
+            } else if (state.multiDoctorContext && state.multiDoctorContext.bookedAppointments && state.multiDoctorContext.bookedAppointments.length > 1) {
+                additionalPrompt = `كده تم تأكيد جميع كشوفات حضرتك المطلوبة بنجاح! تحب${gp.isFemale ? 'ي' : ''} نضيف أي كشف إضافي، ولا نكتفي بالحجوزات دي؟`;
+            } else {
+                additionalPrompt = `تحب${gp.isFemale ? 'ي' : ''} نحجز لحضرتك كشف تاني مع أي دكتور أو تخصص تاني، ولا نكتفي بالحجز ده؟`;
+            }
+
+            const reply = `تم تأكيد حجز حضرتك يا ${honorific} بنجاح! ميعادك ${state.pendingBooking.date} الساعة ${state.pendingBooking.time} مع ${state.pendingBooking.doctor}. هنبعت لحضرتك رسالة تأكيد على الواتساب على رقم ${state.patientPhone}. ألف سلامة على حضرتك و${gp.tanawwar} في العيادة! 🌸\n\n${additionalPrompt}`;
 
             state.postBookingFlow = {
                 step: 'AWAITING_ADDITIONAL_DECISION',
-                lastDoctor: state.pendingBooking.doctor
+                lastDoctor: state.pendingBooking.doctor,
+                lastDoctorId: bookedDocId
             };
 
             delete state.pendingBooking;
