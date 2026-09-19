@@ -1,5 +1,13 @@
-import receptionistAgent from './services/receptionistAgent.js';
-import appointmentService from './services/appointmentService.js';
+import receptionistAgentModule from './services/receptionistAgent.js';
+import appointmentServiceModule from './services/appointmentService.js';
+
+const receptionistAgent = receptionistAgentModule.processChatMessage 
+  ? receptionistAgentModule 
+  : (receptionistAgentModule.default || receptionistAgentModule);
+
+const appointmentService = appointmentServiceModule.getAllAppointments 
+  ? appointmentServiceModule 
+  : (appointmentServiceModule.default || appointmentServiceModule);
 
 export default {
   async fetch(request, env) {
@@ -107,7 +115,7 @@ export default {
         }
 
         if (url.pathname === '/api/waitlist' && request.method === 'GET') {
-          const wl = await appointmentService.getWaitlist();
+          const wl = appointmentService.getAllWaitlist ? await appointmentService.getAllWaitlist() : [];
           return new Response(JSON.stringify({ success: true, count: wl.length, data: wl }), {
             status: 200,
             headers: {

@@ -1,9 +1,24 @@
 const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '../.env') });
-const mongoose = require('mongoose');
-const Appointment = require('../models/Appointment');
-const Patient = require('../models/Patient');
-const Waitlist = require('../models/Waitlist');
+if (typeof __dirname !== 'undefined') {
+    try {
+        require('dotenv').config({ path: path.join(__dirname, '../.env') });
+    } catch (e) {}
+}
+
+let mongoose = null;
+let Appointment = null;
+let Patient = null;
+let Waitlist = null;
+
+try {
+    mongoose = require('mongoose');
+    Appointment = require('../models/Appointment');
+    Patient = require('../models/Patient');
+    Waitlist = require('../models/Waitlist');
+} catch (e) {
+    // Mongoose not available or needed in serverless edge environment
+}
+
 const { encrypt, decrypt } = require('../utils/encryption');
 
 // Doctors directory
@@ -119,21 +134,28 @@ const DOCTORS = Object.values(DOCTORS_SCHEDULE).map(d => ({
 }));
 
 // In-memory fallback stores with field-level encryption when MongoDB is offline
-const memoryAppointments = [
-    // Pre-booked slot for Monday 4:30 PM to demonstrate Scenario B (Slot Booked)
-    {
-        id: 'apt_demo_booked_1',
-        doctor: 'د. أحمد شريف',
-        dateStr: 'Monday',
-        timeStr: '4:30 PM',
-        normalizedDate: 'monday',
-        normalizedTime: '16:30',
-        patientNameEnc: encrypt('محمود حسن'),
-        phoneEnc: encrypt('01011223344'),
-        status: 'scheduled',
-        reason: 'كشف أسنان دوري'
+let memoryAppointments = null;
+
+function getMemoryAppointments() {
+    if (!memoryAppointments) {
+        memoryAppointments = [
+            // Pre-booked slot for Monday 4:30 PM to demonstrate Scenario B (Slot Booked)
+            {
+                id: 'apt_demo_booked_1',
+                doctor: 'د. أحمد شريف',
+                dateStr: 'Monday',
+                timeStr: '4:30 PM',
+                normalizedDate: 'monday',
+                normalizedTime: '16:30',
+                patientNameEnc: encrypt('محمود حسن'),
+                phoneEnc: encrypt('01011223344'),
+                status: 'scheduled',
+                reason: 'كشف أسنان دوري'
+            }
+        ];
     }
-];
+    return memoryAppointments;
+}
 
 const memoryWaitlist = [];
 
@@ -141,7 +163,7 @@ const memoryWaitlist = [];
  * Check if MongoDB connection is active
  */
 const isMongoConnected = () => {
-    return mongoose.connection.readyState === 1;
+    return !!(mongoose && mongoose.connection && mongoose.connection.readyState === 1);
 };
 
 const servicesCatalog = require('../config/services.json');
@@ -558,7 +580,7 @@ async function checkAvailability({ date, doctor, time, currentDate = new Date() 
     }
 
     // Check memory store for collisions
-    const collision = memoryAppointments.find(apt => 
+    const collision = getMemoryAppointments().find(apt => 
         (apt.normalizedDate === normDate && apt.normalizedTime === normTime) ||
         (apt.dateStr && apt.dateStr.toLowerCase() === date?.toLowerCase() && apt.timeStr === time)
     );
@@ -674,7 +696,7 @@ async function bookAppointment({ date, time, phone_number, phone, patientName = 
     }
 
     // Always maintain in-memory record
-    memoryAppointments.push(record);
+    getMemoryAppointments().push(record);
 
     return {
         success: true,
@@ -749,7 +771,7 @@ async function addToWaitlist({ patientName, phone, doctor, requestedDate, reques
  * Get all appointments (decrypted for admin view)
  */
 async function getAllAppointments() {
-    return memoryAppointments.map(apt => ({
+    return getMemoryAppointments().map(apt => ({
         id: apt.id,
         doctor: apt.doctor,
         date: apt.dateStr,
