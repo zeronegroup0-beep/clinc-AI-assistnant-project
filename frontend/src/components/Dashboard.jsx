@@ -10,7 +10,7 @@ export default function Dashboard() {
   const fetchData = async () => {
     setLoading(true);
     setError(null);
-    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+    const apiUrl = import.meta.env.VITE_API_URL || '/api';
     try {
       const [aptRes, wtlRes] = await Promise.all([
         fetch(`${apiUrl}/appointments`).then(r => r.json()),

@@ -281,13 +281,13 @@ function getDayIndexFromDate(dateStr) {
     }
 
     const clean = dateStr.toLowerCase();
-    if (clean.includes('احد') || clean.includes('أحد') || clean.includes('sun')) return 0;
-    if (clean.includes('اثنين') || clean.includes('إثنين') || clean.includes('اتنين') || clean.includes('إتنين') || clean.includes('mon')) return 1;
-    if (clean.includes('ثلاث') || clean.includes('تلات') || clean.includes('tue')) return 2;
-    if (clean.includes('اربع') || clean.includes('أربع') || clean.includes('wed')) return 3;
-    if (clean.includes('خميس') || clean.includes('thu')) return 4;
-    if (clean.includes('جمع') || clean.includes('fri')) return 5;
-    if (clean.includes('سبت') || clean.includes('sat')) return 6;
+    if (clean.includes('احد') || clean.includes('أحد') || clean.includes('الحد') || clean.includes('الاحد') || clean.includes('الأحد') || clean.includes('sun')) return 0;
+    if (clean.includes('اثنين') || clean.includes('إثنين') || clean.includes('اتنين') || clean.includes('إتنين') || clean.includes('التنين') || clean.includes('الاتنين') || clean.includes('mon')) return 1;
+    if (clean.includes('ثلاث') || clean.includes('تلات') || clean.includes('التلات') || clean.includes('tue')) return 2;
+    if (clean.includes('اربع') || clean.includes('أربع') || clean.includes('الاربع') || clean.includes('الأربع') || clean.includes('wed')) return 3;
+    if (clean.includes('خميس') || clean.includes('الخميس') || clean.includes('thu')) return 4;
+    if (clean.includes('جمع') || clean.includes('الجمعة') || clean.includes('fri')) return 5;
+    if (clean.includes('سبت') || clean.includes('السبت') || clean.includes('sat')) return 6;
 
     return -1;
 }
@@ -355,13 +355,13 @@ function normalizeTime(timeStr) {
 function normalizeDate(dateStr) {
     if (!dateStr) return 'general';
     const clean = dateStr.trim().toLowerCase();
-    if (clean.includes('اثنين') || clean.includes('إثنين') || clean.includes('اتنين') || clean.includes('إتنين') || clean.includes('mon')) return 'monday';
-    if (clean.includes('ثلاث') || clean.includes('تلات') || clean.includes('tue')) return 'tuesday';
-    if (clean.includes('اربع') || clean.includes('أربع') || clean.includes('wed')) return 'wednesday';
-    if (clean.includes('خميس') || clean.includes('thu')) return 'thursday';
-    if (clean.includes('جمع') || clean.includes('fri')) return 'friday';
-    if (clean.includes('سبت') || clean.includes('sat')) return 'saturday';
-    if (clean.includes('احد') || clean.includes('أحد') || clean.includes('sun')) return 'sunday';
+    if (clean.includes('اثنين') || clean.includes('إثنين') || clean.includes('اتنين') || clean.includes('إتنين') || clean.includes('التنين') || clean.includes('الاتنين') || clean.includes('mon')) return 'monday';
+    if (clean.includes('ثلاث') || clean.includes('تلات') || clean.includes('التلات') || clean.includes('tue')) return 'tuesday';
+    if (clean.includes('اربع') || clean.includes('أربع') || clean.includes('الاربع') || clean.includes('الأربع') || clean.includes('wed')) return 'wednesday';
+    if (clean.includes('خميس') || clean.includes('الخميس') || clean.includes('thu')) return 'thursday';
+    if (clean.includes('جمع') || clean.includes('الجمعة') || clean.includes('fri')) return 'friday';
+    if (clean.includes('سبت') || clean.includes('السبت') || clean.includes('sat')) return 'saturday';
+    if (clean.includes('احد') || clean.includes('أحد') || clean.includes('الحد') || clean.includes('الاحد') || clean.includes('الأحد') || clean.includes('sun')) return 'sunday';
     if (clean.includes('بكرة') || clean.includes('غدا') || clean.includes('غداً') || clean.includes('tomorrow')) return 'tomorrow';
     return clean;
 }
