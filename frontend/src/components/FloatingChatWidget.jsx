@@ -466,7 +466,9 @@ export default function FloatingChatWidget({ externalTriggerMessage, onClearTrig
         const base64Audio = reader.result;
 
         try {
-          setReasoning(isAr ? 'جاري تفريغ الصوت وتحليله عبر Gemini Flash...' : 'Transcribing voice via Gemini Flash...');
+          setReasoning(capturedLiveText 
+            ? (isAr ? 'جاري تحليل الرسالة الصوتية الذكية...' : 'Processing voice message...')
+            : (isAr ? 'جاري تفريغ الصوت وتحليله عبر الذكاء الاصطناعي...' : 'Transcribing voice via AI...'));
 
           const response = await fetch(`${API_URL}/chat/voice-message`, {
             method: 'POST',
@@ -474,6 +476,7 @@ export default function FloatingChatWidget({ externalTriggerMessage, onClearTrig
             body: JSON.stringify({
               audio: base64Audio,
               mimeType,
+              liveText: capturedLiveText,
               language,
               sessionId: sessionId || 'default_session',
               sessionData: { ...sessionState, language }

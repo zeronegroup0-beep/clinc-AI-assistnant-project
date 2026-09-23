@@ -1473,6 +1473,63 @@ function getDoctorDepartmentTitle(doctorNameOrId) {
     return doc ? (doc.departmentTitle || doc.department || doc.specialty) : 'العيادة';
 }
 
+/**
+ * Get all doctors working at a specific branch
+ */
+function getDoctorsByBranch(branchKey) {
+    if (!branchKey) return Object.values(DOCTORS_SCHEDULE);
+    const key = String(branchKey).toLowerCase().trim();
+    let branchId = null;
+    if (key.includes('دمنهور') || key === 'damanhour') branchId = 'damanhour';
+    else if (key.includes('إسكندر') || key.includes('اسكندر') || key === 'alex') branchId = 'alex';
+
+    if (!branchId || !BRANCHES[branchId]) return Object.values(DOCTORS_SCHEDULE);
+    return BRANCHES[branchId].doctorIds.map(id => DOCTORS_SCHEDULE[id]).filter(Boolean);
+}
+
+/**
+ * Get doctors working at a specific branch on a specific day or date
+ */
+function getDoctorsByBranchAndDate(branchKey, targetDateOrDayIndex) {
+    const branchDocs = getDoctorsByBranch(branchKey);
+    let dayIndex = -1;
+
+    if (typeof targetDateOrDayIndex === 'number') {
+        dayIndex = targetDateOrDayIndex;
+    } else if (targetDateOrDayIndex instanceof Date) {
+        dayIndex = targetDateOrDayIndex.getDay();
+    } else if (typeof targetDateOrDayIndex === 'string') {
+        dayIndex = getDayIndexFromDate(targetDateOrDayIndex);
+        if (dayIndex === -1) {
+            const clean = targetDateOrDayIndex.trim();
+            if (clean.includes('سبت')) dayIndex = 6;
+            else if (clean.includes('احد') || clean.includes('أحد')) dayIndex = 0;
+            else if (clean.includes('اثنين') || clean.includes('إثنين')) dayIndex = 1;
+            else if (clean.includes('ثلاثاء')) dayIndex = 2;
+            else if (clean.includes('اربعاء') || clean.includes('أربعاء')) dayIndex = 3;
+            else if (clean.includes('خميس')) dayIndex = 4;
+            else if (clean.includes('جمعة') || clean.includes('جمعه')) dayIndex = 5;
+        }
+    }
+
+    if (dayIndex === -1) {
+        return {
+            onDuty: branchDocs,
+            offDuty: [],
+            dayIndex: -1
+        };
+    }
+
+    const onDuty = branchDocs.filter(d => Array.isArray(d.workingDayIndices) && d.workingDayIndices.includes(dayIndex));
+    const offDuty = branchDocs.filter(d => !Array.isArray(d.workingDayIndices) || !d.workingDayIndices.includes(dayIndex));
+
+    return {
+        onDuty,
+        offDuty,
+        dayIndex
+    };
+}
+
 module.exports = {
     DOCTORS,
     DOCTORS_SCHEDULE,
@@ -1494,6 +1551,8 @@ module.exports = {
     getNextWorkingDay,
     isDateToday,
     BRANCHES,
+    getDoctorsByBranch,
+    getDoctorsByBranchAndDate,
     generateBookingId,
     // Dynamic Blacklist
     getBlacklist,

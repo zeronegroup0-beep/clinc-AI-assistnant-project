@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '../.env') });
 const receptionistAgent = require('../services/receptionistAgent');
+const appointmentService = require('../services/appointmentService');
 
 const QA_LOGS_PATH = path.join(__dirname, '../data/qa_logs.json');
 
@@ -220,6 +221,35 @@ const SELF_PLAY_SCENARIOS = [
         }
       }
     ]
+  },
+  {
+    id: 'sim_branch_compound_07',
+    scenario: 'Compound Branch & Today Availability (Damanhour vs Alex)',
+    persona: {
+      name: 'هشام كمال الشريف',
+      gender: 'male',
+      style: 'دقيق ومحدد',
+      objective: 'الاستفسار عن دكاترة فرع دمنهور النهاردة واستعراض دكاترة فرع الإسكندرية'
+    },
+    turns: [
+      {
+        turn: 1,
+        userMessage: 'والله عايز أعرف مين اللي موجود في فرع دمنهور النهاردة؟',
+        expectedIntent: 'filter_branch_and_today_doctors',
+        evaluatorCriteria: {
+          mustMentionDoctor: 'أحمد شريف',
+          mustIncludeBranchName: 'دمنهور'
+        }
+      },
+      {
+        turn: 2,
+        userMessage: 'ومين دكاترة فرع اسكندرية المتاحين عموماً في العيادة؟',
+        expectedIntent: 'list_alex_branch_doctors',
+        evaluatorCriteria: {
+          mustMentionAlexDoctors: true
+        }
+      }
+    ]
   }
 ];
 
@@ -321,6 +351,23 @@ function evaluateTurnResponse(turnSpec, result) {
     }
   }
 
+  // 10. Branch Name check
+  if (criteria.mustIncludeBranchName) {
+    if (!reply.includes(criteria.mustIncludeBranchName)) {
+      failures.push(`لم يتم ذكر اسم الفرع المطلوب "${criteria.mustIncludeBranchName}" في الرد.`);
+      scorePoints -= 25;
+    }
+  }
+
+  // 11. Alex doctors check
+  if (criteria.mustMentionAlexDoctors) {
+    const hasAlexDocs = (reply.includes('حسام فتحي') || reply.includes('مريم نبيل')) && reply.includes('أحمد شريف');
+    if (!hasAlexDocs) {
+      failures.push(`لم يتم استرجاع دكاترة فرع الإسكندرية المعتمدين بدقة.`);
+      scorePoints -= 30;
+    }
+  }
+
   const passed = failures.length === 0 && scorePoints >= 70;
   return {
     passed,
@@ -335,6 +382,9 @@ function evaluateTurnResponse(turnSpec, result) {
 async function runSelfPlaySuite() {
   const startTime = Date.now();
   const currentDate = new Date();
+  if (appointmentService && typeof appointmentService.resetDataStores === 'function') {
+    appointmentService.resetDataStores();
+  }
   const sessions = [];
 
   for (const scen of SELF_PLAY_SCENARIOS) {

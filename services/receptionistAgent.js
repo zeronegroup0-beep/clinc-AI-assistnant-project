@@ -2,6 +2,7 @@ const path = require('path');
 const fs = require('fs');
 const appointmentService = require('./appointmentService');
 const { detectGender, getGenderedPhrases, isFeminineName, FEMININE_NAMES, MASCULINE_NAMES, isTripleName, extractFirstName } = require('../utils/genderUtils');
+const { isValidArabicName } = require('../utils/arabicNamesDictionary');
 const geminiAgent = require('./geminiAgent');
 
 /**
@@ -1525,11 +1526,14 @@ function extractNameFromMessage(text, isExplicitlyAwaitingName = false) {
             .replace(/^(?:اسمي|اسمى)?\s*(?:بالكامل\s+هو|بالكامل|هو)?\s*/gi, '')
             .trim();
         if (nameCandidate.startsWith('و')) nameCandidate = nameCandidate.slice(1).trim();
+        nameCandidate = nameCandidate.replace(/(?:ورقمي|ورقمى|ورقم|وتليفوني|وتليفونى|رقمي|رقمى|تليفوني|تليفونى)[\s\d+]*$/gi, '').trim();
         const candidateWords = nameCandidate.split(/\s+/).filter(Boolean);
         if (candidateWords.length >= 1 && candidateWords.length <= 4) {
             const hasBookingOrIntent = /(?:عايز|عاوز|احجز|حجز|كشف|بكام|سعر|فين|مكان|عايزة|عاوزه|مواعيد|فاضيين|ميعاد|موعد|دكتور|دكتورة|تخصص|اشوف|اعرف|استشارة|جلسة|اسنان|جلدية|باطنة|عيون|كنت|حابب|حابة)/i.test(nameCandidate);
             if (!hasBookingOrIntent && !containsBlacklistedNameWord(nameCandidate) && !/\d/.test(nameCandidate) && nameCandidate.length >= 2) {
-                return nameCandidate;
+                if (isValidArabicName(nameCandidate) || /^[a-zA-Z\s]{2,40}$/.test(nameCandidate)) {
+                    return nameCandidate;
+                }
             }
         }
     }
@@ -1553,14 +1557,14 @@ function extractNameFromMessage(text, isExplicitlyAwaitingName = false) {
             }
             const hasBookingOrIntent = /(?:عايز|عاوز|احجز|حجز|كشف|بكام|سعر|فين|مكان|عايزة|عاوزه|مواعيد|فاضيين|ميعاد|موعد|دكتور|دكتورة|تخصص|اشوف|اعرف|استشارة|جلسة|اسنان|جلدية|باطنة|عيون|كنت|حابب|حابة)/i.test(candidate);
             if (candidate && !containsBlacklistedNameWord(candidate) && !hasBookingOrIntent && !/\d/.test(candidate) && candidate.length >= 2) {
-                return candidate;
+                if (isValidArabicName(candidate) || /^[a-zA-Z\s]{2,40}$/.test(candidate)) {
+                    return candidate;
+                }
             }
         }
     }
 
     // Standalone Name Candidate Extraction:
-    // If explicitly awaiting name, accept 1 to 4 clean words.
-    // If not explicitly awaiting name, accept 2 to 4 clean words (e.g. "أسامة الغزالي") OR a known first name!
     let candidate = effectiveClean;
     const titleMatch = candidate.match(/^(?:أستاذ|استاذ|دكتور|دكتورة|دكتوره|باشمهندس|مهندس|مدام|سيدة|كابتن|م\/|د\/)\s+([ء-يa-zA-Z\s]{2,40})$/i);
     if (titleMatch) {
@@ -1575,14 +1579,8 @@ function extractNameFromMessage(text, isExplicitlyAwaitingName = false) {
     if (!hasBookingOrIntent && !hasPhoneInMessage && !/\d/.test(candidate)) {
         const candidateWords = candidate.split(/\s+/).filter(Boolean);
         if (candidateWords.length >= 1 && candidateWords.length <= 4 && !containsBlacklistedNameWord(candidate) && /^[ء-يa-zA-Z\s]{2,40}$/.test(candidate)) {
-            const firstWord = candidateWords[0];
-            const normalizedFirst = firstWord.replace(/[إأآٱ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي');
-            if (isExplicitlyAwaitingName || 
-                candidateWords.length >= 2 || 
-                MASCULINE_NAMES.has(firstWord) || 
-                MASCULINE_NAMES.has(normalizedFirst) || 
-                FEMININE_NAMES.has(firstWord) || 
-                FEMININE_NAMES.has(normalizedFirst)) {
+            // Strictly check against authentic Arabic names library or valid English name
+            if (isValidArabicName(candidate) || (/^[a-zA-Z\s]{2,40}$/.test(candidate) && candidateWords.length <= 4)) {
                 return candidate;
             }
         }
@@ -1650,19 +1648,6 @@ async function internalProcessChatMessage({ message, sessionId, sessionData = {}
             reasoningSteps,
             state
         };
-    }
-
-    // 0. Gemini Generative AI Agent Hook (if GEMINI_API_KEY is configured)
-    if (geminiAgent && typeof geminiAgent.isGeminiEnabled === 'function' && geminiAgent.isGeminiEnabled()) {
-        const geminiResult = await geminiAgent.processWithGemini({
-            message: rawText,
-            history: state.history || [],
-            state,
-            currentDate
-        });
-        if (geminiResult && geminiResult.reply) {
-            return geminiResult;
-        }
     }
 
     // 0.1 Human Secretary & Administration Takeover Detection (Ultra-robust intent intersection)
@@ -1904,8 +1889,12 @@ async function internalProcessChatMessage({ message, sessionId, sessionData = {}
             const cleanRawWords = cleanRaw.split(/\s+/).filter(Boolean);
             const extractedName = (cleanRawWords.length === words.length && !/\d/.test(cleanRaw)) ? cleanRaw : words.join(' ');
             
-            // Strict Triple-Name Enforcement for appointment bookings & waitlist
-            if (!isTripleName(extractedName) && (state.pendingBooking || state.awaitingWaitlist || state.multiDoctorContext)) {
+            const isValidName = isValidArabicName(extractedName) || (/^[a-zA-Z\s]{2,40}$/.test(extractedName) && cleanRawWords.length <= 4);
+            if (!isValidName) {
+                delete state.awaitingName;
+            } else {
+                // Strict Triple-Name Enforcement for appointment bookings & waitlist
+                if (!isTripleName(extractedName) && (state.pendingBooking || state.awaitingWaitlist || state.multiDoctorContext)) {
                 state.userName = extractedName;
                 state.gender = detectGender({
                     text: normalizedText,
@@ -2024,6 +2013,7 @@ async function internalProcessChatMessage({ message, sessionId, sessionData = {}
             const greetingPrefix = gp.isFemale ? 'أهلاً بكِ أستاذة' : 'أهلاً بك يا أستاذ';
             const reply = `${greetingPrefix} ${extractedName}! إزاي أقدر أساعدك النهاردة؟`;
             return { reply, reasoningSteps, state };
+            }
         }
     }
 
@@ -3149,30 +3139,82 @@ async function internalProcessChatMessage({ message, sessionId, sessionData = {}
         state.branch_name = 'دمنهور';
     }
 
-    if (!extractedDoc?.doctor && isAlexBranch && (isAvailabilityInquiry(lowerText) || lowerText.includes('مواعيد') || lowerText.includes('فرع'))) {
-        reasoningSteps.push('استرجاع مواعيد فرع الإسكندرية وتحديث فرع الجلسة');
-        let branchReply = 'مواعيد فرع الإسكندرية: د. حسام فتحي (الباطنة والقلب)، د. مريم نبيل (العيون)، ود. أحمد شريف (الأسنان). تحب أحجز لحضرتك ميعاد في فرع الإسكندرية؟';
-        return { reply: branchReply, reasoningSteps, state };
+    const isDoctorInquiry = lowerText.includes('دكتور') || lowerText.includes('دكاترة') || lowerText.includes('دكتورة') ||
+                            lowerText.includes('طبيب') || lowerText.includes('أطباء') || lowerText.includes('مين') ||
+                            lowerText.includes('شغال') || lowerText.includes('موجود') || lowerText.includes('متاح') ||
+                            lowerText.includes('مواعيد') || lowerText.includes('كشف') || lowerText.includes('تخصصات') ||
+                            lowerText.includes('فرع') || isAvailabilityInquiry(lowerText);
+
+    // Check if user specifically requested to continue in Damanhour
+    if (isDamanhourBranch && (lowerText.includes('اكمل في دمنهور') || lowerText.includes('أكمل في دمنهور') || lowerText.includes('نكمل في دمنهور') || lowerText.includes('طيب اكمل'))) {
+        const doc = state.bookingDraft?.doctor || 'د. أحمد شريف';
+        let reply = `تمام يا ${honorific || 'فندم'}، هنكمل الحجز في فرع دمنهور مع ${doc}. `;
+        if (state.bookingDraft?.date && state.bookingDraft?.time) {
+            reply += `ميعاد حضرتك ${state.bookingDraft.date} الساعة ${state.bookingDraft.time}. ممكن رقم الواتساب والاسم الكريم للتأكيد؟`;
+            state.awaitingPhone = true;
+            state.awaitingName = !state.patientName;
+        } else if (state.bookingDraft?.date) {
+            reply += `تحب${gp.isFemale ? 'ي' : ''} ميعاد الساعة كام فيهم؟`;
+        } else {
+            reply += `تحب${gp.isFemale ? 'ي' : ''} تحجز${gp.isFemale ? 'ي' : ''} يوم إيه؟`;
+        }
+        return { reply, reasoningSteps, state };
     }
 
-    if (isDamanhourBranch) {
-        state.branch_id = 'damanhour';
-        state.branch_name = 'دمنهور';
-        reasoningSteps.push('تحديد أو التبديل إلى فرع دمنهور');
-        if (lowerText.includes('اكمل في دمنهور') || lowerText.includes('أكمل في دمنهور') || lowerText.includes('نكمل في دمنهور') || lowerText.includes('طيب اكمل')) {
-            const doc = state.bookingDraft?.doctor || 'د. أحمد شريف';
-            let reply = `تمام يا ${honorific || 'فندم'}، هنكمل الحجز في فرع دمنهور مع ${doc}. `;
-            if (state.bookingDraft?.date && state.bookingDraft?.time) {
-                reply += `ميعاد حضرتك ${state.bookingDraft.date} الساعة ${state.bookingDraft.time}. ممكن رقم الواتساب والاسم الكريم للتأكيد؟`;
-                state.awaitingPhone = true;
-                state.awaitingName = !state.patientName;
-            } else if (state.bookingDraft?.date) {
-                reply += `تحب${gp.isFemale ? 'ي' : ''} ميعاد الساعة كام فيهم؟`;
-            } else {
-                reply += `تحب${gp.isFemale ? 'ي' : ''} تحجز${gp.isFemale ? 'ي' : ''} يوم إيه؟`;
+    // Resolve date if present in compound query (e.g. "مين موجود في فرع دمنهور النهاردة؟" or "دكاترة اسكندرية بكرة")
+    const targetDateObj = resolveDateFromText(lowerText, currentDate);
+
+    // 1. COMPOUND QUERY: Branch + Specific Date / Today
+    if (!extractedDoc?.doctor && (isDamanhourBranch || isAlexBranch) && isDoctorInquiry && targetDateObj) {
+        const branchKey = isDamanhourBranch ? 'damanhour' : 'alex';
+        const branchName = isDamanhourBranch ? 'فرع دمنهور (شارع عبد السلام الشاذلي)' : 'فرع الإسكندرية (طريق الجيش، ستانلي)';
+        const dateDesc = targetDateObj.relativeName 
+            ? `${targetDateObj.relativeName} (${targetDateObj.dayNameAr} ${targetDateObj.dateStr})`
+            : `${targetDateObj.dayNameAr} (${targetDateObj.dateStr})`;
+
+        const scheduleFilter = appointmentService.getDoctorsByBranchAndDate(branchKey, targetDateObj.dayNameAr);
+        const onDuty = scheduleFilter.onDuty;
+        const offDuty = scheduleFilter.offDuty;
+
+        reasoningSteps.push(`استعلام مركب: دكاترة ${branchName} في ${dateDesc}`);
+
+        let reply = '';
+        if (onDuty.length > 0) {
+            const onDutyList = onDuty.map((d, idx) => 
+                `${idx + 1}- ${d.name} (${d.departmentTitle || d.specialty}): متاح من ${d.hoursAr}`
+            ).join('\n');
+
+            reply = `أهلاً بحضرتك يا ${honorific || 'فندم'}! 🌸\nالمتاح في ${branchName} ${dateDesc}:\n\n${onDutyList}`;
+
+            if (offDuty.length > 0) {
+                const offDutyList = offDuty.map(d => `${d.name} (${d.departmentTitle || d.specialty} - مواعيده: ${d.workingDaysAr})`).join('، ');
+                reply += `\n\n(أما باقي أطباء الفرع: ${offDutyList})`;
             }
-            return { reply, reasoningSteps, state };
+
+            const firstDoc = onDuty[0];
+            reply += `\n\nتحب${gp.isFemale ? 'ي' : ''} أحجز لحضرتك ميعاد مع ${onDuty.length === 1 ? firstDoc.name : 'أي دكتور فيهم'}؟`;
+        } else {
+            const offDutyList = offDuty.map(d => `• ${d.name} (${d.departmentTitle || d.specialty}): مواعيده ${d.workingDaysAr}`).join('\n');
+            reply = `أهلاً بحضرتك يا ${honorific || 'فندم'}! في ${branchName} يوم ${dateDesc} لا توجد عيادات تعمل في هذا اليوم.\n\nمواعيد عمل أطباء الفرع في الأيام الأخرى:\n${offDutyList}\n\nتحب${gp.isFemale ? 'ي' : ''} نختار يوم تاني من أيام عملهم؟`;
         }
+
+        return { reply, reasoningSteps, state };
+    }
+
+    // 2. PURE BRANCH DOCTORS INQUIRY (Branch without specific date, e.g. "مين دكاترة فرع دمنهور؟" or "عايز دكاترة فرع اسكندرية")
+    if (!extractedDoc?.doctor && (isDamanhourBranch || isAlexBranch) && isDoctorInquiry) {
+        const branchKey = isDamanhourBranch ? 'damanhour' : 'alex';
+        const branchName = isDamanhourBranch ? 'فرع دمنهور (شارع عبد السلام الشاذلي)' : 'فرع الإسكندرية (طريق الجيش، ستانلي)';
+        const branchDocs = appointmentService.getDoctorsByBranch(branchKey);
+
+        reasoningSteps.push(`استرجاع قائمة أطباء ${branchName} بدقة وتحديث فرع الجلسة`);
+
+        const docsList = branchDocs.map((d, idx) => 
+            `${idx + 1}- ${d.name} (${d.departmentTitle || d.specialty})\n   • المواعيد: ${d.workingDaysAr} (من ${d.hoursAr})`
+        ).join('\n');
+
+        const reply = `أهلاً بحضرتك يا ${honorific || 'فندم'}! 🌸\nالأطباء المتاحون في ${branchName} هم:\n\n${docsList}\n\nتحب${gp.isFemale ? 'ي' : ''} أحجز لحضرتك ميعاد مع أي دكتور فيهم؟`;
+        return { reply, reasoningSteps, state };
     }
 
     // Branch inquiry or Ambiguous Branch Selection

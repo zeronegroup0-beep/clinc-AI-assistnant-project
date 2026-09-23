@@ -197,26 +197,34 @@ router.post('/chat/voice-transcribe', async (req, res) => {
  */
 router.post('/chat/voice-message', async (req, res, next) => {
     try {
-        const { audio, mimeType = 'audio/webm', language = 'ar', sessionId, sessionData = {} } = req.body;
-        if (!audio) {
+        const { audio, mimeType = 'audio/webm', language = 'ar', liveText, sessionId, sessionData = {} } = req.body;
+        if (!audio && (!liveText || liveText.trim().length === 0)) {
             return res.status(400).json({ success: false, message: 'التسجيل الصوتي مطلوب' });
         }
 
-        // 1. Transcribe audio using Gemini Flash
-        const transcribeResult = await geminiAgent.transcribeAudioWithGemini({
-            audioBase64: audio,
-            mimeType,
-            language
-        });
+        let transcribedText = '';
 
-        if (!transcribeResult.success || !transcribeResult.text) {
-            return res.status(502).json({
-                success: false,
-                message: transcribeResult.error || 'تعذر استخراج النص من المقطع الصوتي'
+        // 1. Fast-track with browser real-time speech recognition if present (Drops latency from ~8s to ~1s!)
+        if (liveText && typeof liveText === 'string' && liveText.trim().length >= 2) {
+            transcribedText = liveText.trim();
+        } else if (audio) {
+            // Fallback to Gemini Flash audio transcription when browser speech recognition is unavailable
+            const transcribeResult = await geminiAgent.transcribeAudioWithGemini({
+                audioBase64: audio,
+                mimeType,
+                language
             });
-        }
 
-        const transcribedText = transcribeResult.text;
+            if (!transcribeResult.success || !transcribeResult.text) {
+                return res.status(502).json({
+                    success: false,
+                    message: transcribeResult.error || 'تعذر استخراج النص من المقطع الصوتي'
+                });
+            }
+            transcribedText = transcribeResult.text;
+        } else {
+            return res.status(400).json({ success: false, message: 'تعذر التعرف على الصوت' });
+        }
         const effectiveSessionId = (sessionId && sessionId !== 'default_session')
             ? sessionId
             : 'session_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
