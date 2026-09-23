@@ -1,0 +1,97 @@
+[
+  {
+    "scenario": "Generic Booking (Dentistry)",
+    "user_input": "عايز احجز كشف أسنان مع دكتور أحمد شريف يوم الإثنين الساعة 4:30 مساءً",
+    "expected_action": "check_and_lock_slot",
+    "ideal_response_keywords": [
+      "د. أحمد شريف",
+      "الإثنين",
+      "4:30",
+      "الاسم الثلاثي",
+      "رقم الموبايل",
+      "250"
+    ]
+  },
+  {
+    "scenario": "Doctor Switch Mid-Conversation",
+    "user_input": "لا خلاص مش عايز أسنان، غيرت رأيي وعايز دكتورة سارة محمود جلدية يوم الثلاثاء",
+    "expected_action": "switch_doctor_and_specialty",
+    "ideal_response_keywords": [
+      "د. سارة محمود",
+      "الجلدية والتجميل",
+      "الثلاثاء",
+      "المواعيد المتاحة",
+      "تحت أمرك"
+    ]
+  },
+  {
+    "scenario": "Emergency Intercept",
+    "user_input": "عندي ألم شديد جداً ومفاجئ في صدري وضيق تنفس وحاسس إني هيغمى عليا",
+    "expected_action": "immediate_emergency_redirection",
+    "ideal_response_keywords": [
+      "طوارئ",
+      "فوراً",
+      "123",
+      "سلامتك",
+      "أقرب مستشفى",
+      "لا تنتظر"
+    ]
+  },
+  {
+    "scenario": "Entity & Slot Correction (Triple Name & Phone)",
+    "user_input": "اسمي مش محمد، اسمي بالكامل أحمد مصطفى إبراهيم ورقمي 01012345678",
+    "expected_action": "update_patient_entities_and_finalize",
+    "ideal_response_keywords": [
+      "أحمد مصطفى إبراهيم",
+      "01012345678",
+      "تم تأكيد الحجز",
+      "كود الحجز",
+      "ألف سلامة"
+    ]
+  },
+  {
+    "scenario": "Price & Schedule Consultation Inquiry",
+    "user_input": "هو كشف الباطنة مع دكتور حسام فتحي بكام ومواعيده إيه في عيادة دمنهور؟",
+    "expected_action": "inform_pricing_and_schedule",
+    "ideal_response_keywords": [
+      "د. حسام فتحي",
+      "أمراض الباطنة والقلب",
+      "280",
+      "السبت إلى الخميس",
+      "دمنهور"
+    ]
+  },
+  {
+    "scenario": "Fully Booked Slot & Waitlist Registration",
+    "user_input": "عايز موعد ضروري يوم السبت الساعة 5 مع دكتور أحمد شريف ولو محجوز حطني على الانتظار",
+    "expected_action": "offer_waitlist_registration",
+    "ideal_response_keywords": [
+      "قائمة الانتظار",
+      "كود الانتظار",
+      "أول ميعاد يعتذر",
+      "تنبيه واتساب"
+    ]
+  },
+  {
+    "scenario": "Human Secretary Handover",
+    "user_input": "عايز اكلم حد من السكرتارية أو الإدارة ضروري",
+    "expected_action": "request_human_takeover",
+    "ideal_response_keywords": [
+      "السكرتارية",
+      "موظفة الاستقبال",
+      "لحظات وتكون معاك",
+      "تحت أمرك"
+    ]
+  },
+  {
+    "scenario": "Abusive Language & Disciplinary Intercept",
+    "user_input": "خدمتكم زفت وانتو كلكو مش نافعين وبطيئين",
+    "expected_action": "firm_polite_deescalation",
+    "ideal_response_keywords": [
+      "حقك علينا",
+      "نعتذر",
+      "التزام بالأدب والاحترام",
+      "أساعدك إزاي"
+    ]
+  }
+]

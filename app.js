@@ -10,9 +10,9 @@ const path = require('path');
 app.use(helmet({ contentSecurityPolicy: false })); // Set security HTTP headers allowing QA dashboard fonts/scripts
 app.use(cors()); // Enable CORS
 
-// Body parser
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// Body parser (25mb limit to support base64 voice notes)
+app.use(express.json({ limit: '25mb' }));
+app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 
 // Serve static assets from public
 app.use(express.static(path.join(__dirname, 'public')));

@@ -19,13 +19,35 @@ const MASCULINE_NAMES = new Set([
     'محمود', 'أحمد', 'احمد', 'محمد', 'كريم', 'علي', 'على', 'عمر', 'خالد', 'يوسف',
     'مصطفى', 'مصطفي', 'إبراهيم', 'ابراهيم', 'طارق', 'شريف', 'عمرو', 'حسن', 'حسين',
     'ياسر', 'سامح', 'ماجد', 'وائل', 'هشام', 'تامر', 'هاني', 'هاني', 'عادل', 'عصام',
-    'أيمن', 'ايمن', 'أشرف', 'اشرف', 'حسام', 'سامي', 'سامي', 'فادي', 'شادي'
+    'أيمن', 'ايمن', 'أشرف', 'اشرف', 'حسام', 'سامي', 'سامي', 'فادي', 'شادي',
+    'أسامة', 'اسامة', 'اسامه', 'حمزة', 'حمزه', 'عماد', 'وليد', 'سعيد', 'رامي', 'رامى',
+    'علاء', 'بهاء', 'براء', 'بلال', 'زياد', 'يحيى', 'يحيي', 'صلاح', 'جمال', 'كمال',
+    'سامر', 'مازن', 'معتز', 'مروان', 'هيثم', 'حاتم', 'حازم', 'سيف', 'أدهم', 'ادهم',
+    'كرم', 'أنس', 'انس', 'ياسين', 'فارس', 'عمار', 'عبدالله', 'عبد الله', 'عبدالرحمن', 'عبد الرحمن',
+    // Coptic & Christian Egyptian Names
+    'توماس', 'انطوان', 'أنطوان', 'مكرم', 'بيتر', 'مينا', 'جورج', 'كيرلس', 'ريمون', 'بولا',
+    'شنودة', 'شنوده', 'أبانوب', 'ابانوب', 'ماريو', 'جون', 'مايكل', 'إدوارد', 'ادوارد', 'مرقص',
+    'فيكتور', 'ناجي', 'ناجى', 'بشاي', 'بشاى', 'ملاك', 'باسيلي', 'باسيل'
 ]);
 
 const UNISEX_NAMES = new Set([
     'نور', 'إسلام', 'اسلام', 'رضا', 'عصمت', 'جهاد', 'تيسير', 'صباح', 'ميسرة', 'ميسره',
     'شمس', 'وسام', 'إكرام', 'اكرام', 'صفاء', 'رجاء', 'يسر', 'ضياء', 'إحسان', 'احسان'
 ]);
+
+/**
+ * Validate if a patient name is at least a triple name (3 words or 2 words with compound name like عبد الرحمن)
+ */
+function isTripleName(name) {
+    if (!name) return false;
+    const words = name.trim().split(/\s+/).filter(Boolean);
+    if (words.length >= 3) return true;
+    // Check compound name: e.g. "عبد الرحمن أحمد" has 3 parts (عبد + الرحمن + أحمد)
+    if (words.length === 2 && (words[0] === 'عبد' || words[0] === 'ابو' || words[0] === 'أبو' || words[1] === 'الدين')) {
+        return false; // Still just 2 parts
+    }
+    return false;
+}
 
 /**
  * Check if a name is typically unisex / ambiguous in Egyptian Arabic
@@ -133,7 +155,18 @@ function detectGender({ text = '', name = null, currentGender = null }) {
             return 'female';
         }
         const firstWord = name.trim().split(/\s+/)[0];
-        if (MASCULINE_NAMES.has(firstWord)) {
+        const normalizedFirst = firstWord.replace(/[إأآٱ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي');
+
+        if (firstWord === 'عبد' || firstWord === 'ابو' || firstWord === 'أبو') {
+            return 'male';
+        }
+
+        const masculineExceptions = ['حمزة', 'حمزه', 'أسامة', 'اسامة', 'اسامه', 'طلحة', 'طلحه', 'عبيدة', 'عبيده', 'عكرمة', 'عكرمه', 'قتادة', 'قتاده', 'طه', 'علاء', 'بهاء', 'براء', 'ضياء'];
+        if (masculineExceptions.includes(firstWord) || masculineExceptions.includes(normalizedFirst)) {
+            return 'male';
+        }
+
+        if (MASCULINE_NAMES.has(firstWord) || MASCULINE_NAMES.has(normalizedFirst)) {
             return 'male';
         }
     }
@@ -143,6 +176,27 @@ function detectGender({ text = '', name = null, currentGender = null }) {
     }
 
     return null; // Undetermined / neutral
+}
+
+/**
+ * Extract first name or compound first name (e.g. "عبد الرحمن", "سيف الدين", "فاطمة الزهراء")
+ */
+function extractFirstName(name) {
+    if (!name) return '';
+    let clean = name.trim();
+    clean = clean.replace(/^(أستاذة|استاذة|أستاذ|استاذ|مدام|دكتورة|دكتور|باشمهندس|مهندس)\s+/, '').trim();
+    const parts = clean.split(/\s+/);
+    if (parts.length <= 1) return parts[0] || '';
+    if (parts[0] === 'عبد' || parts[0] === 'ابو' || parts[0] === 'أبو') {
+        return `${parts[0]} ${parts[1]}`;
+    }
+    if (parts[1] === 'الدين') {
+        return `${parts[0]} ${parts[1]}`;
+    }
+    if (parts[0] === 'فاطمة' && (parts[1] === 'الزهراء' || parts[1] === 'الزهرا')) {
+        return 'فاطمة الزهراء';
+    }
+    return parts[0];
 }
 
 /**
@@ -168,23 +222,19 @@ function getGenderedPhrases(gender = null) {
         lak: isFemale ? 'لكِ' : 'لك',
         mashkoor: isFemale ? 'مشكورة' : 'مشكور',
         yaFandem: 'يا فندم',
-        // Honorific generator
+        extractFirstName,
+        // Honorific generator: Addresses patient by title + first name (e.g. "أستاذ أسامة") instead of repeating full triple name
         formatHonorific: (name) => {
             if (!name) return 'حضرتك';
             const clean = name.trim();
+            const firstName = extractFirstName(clean);
             if (isNeutral) {
-                return clean;
+                return firstName || clean;
             }
             if (isFemale) {
-                if (clean.startsWith('أستاذة') || clean.startsWith('استاذة') || clean.startsWith('مدام') || clean.startsWith('دكتورة')) {
-                    return clean;
-                }
-                return `أستاذة ${clean}`;
+                return `أستاذة ${firstName}`;
             } else {
-                if (clean.startsWith('أستاذ') || clean.startsWith('استاذ') || clean.startsWith('باشمهندس') || clean.startsWith('دكتور')) {
-                    return clean;
-                }
-                return `أستاذ ${clean}`;
+                return `أستاذ ${firstName}`;
             }
         }
     };
@@ -197,6 +247,8 @@ module.exports = {
     getGenderedPhrases,
     FEMININE_NAMES,
     MASCULINE_NAMES,
-    UNISEX_NAMES
+    UNISEX_NAMES,
+    isTripleName,
+    extractFirstName
 };
 

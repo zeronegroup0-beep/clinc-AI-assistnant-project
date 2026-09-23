@@ -48,9 +48,9 @@ const QA_TEST_SUITE = [
             {
                 userMessage: 'مساء الخير، معاك أستاذ محمود السيد',
                 assertions: {
-                    mustInclude: ['محمود السيد'],
+                    mustInclude: ['أستاذ محمود'],
                     stateCheck: (state) => state.patientName && state.patientName.includes('محمود'),
-                    description: 'التعرف على الاسم وتخزينه في ذاكرة الجلسة'
+                    description: 'التعرف على الاسم وتخزينه في ذاكرة الجلسة ومخاطبته باللقب والاسم الأول'
                 }
             }
         ]
@@ -430,11 +430,11 @@ const QA_TEST_SUITE = [
             {
                 userMessage: 'أنا اسمي سارة حسن وعايزة استفسر عن المواعيد',
                 assertions: {
-                    mustInclude: ['أستاذة سارة حسن', 'نورتِ'],
+                    mustInclude: ['أستاذة سارة', 'نورتِ'],
                     mustIncludeAny: ['حابة تستفسري', 'تحبي'],
                     mustNotInclude: ['أستاذ سارة', 'حابب تستفسر', 'تحب تحجز'],
                     stateCheck: (state) => state.gender === 'female' && state.patientName === 'سارة حسن',
-                    description: 'الترحيب المؤنث ومطابقة الأفعال بالكامل'
+                    description: 'الترحيب المؤنث ومطابقة الأفعال بالكامل ومخاطبتها باللقب والاسم الأول'
                 }
             }
         ]
@@ -501,7 +501,7 @@ const QA_TEST_SUITE = [
     },
     {
         id: 'tc_27_standalone_name_awaiting_state',
-        title: 'Entity Guard: Standalone Name Extraction in AWAITING_NAME State ("محمود")',
+        title: 'Entity Guard: Standalone Name Extraction ("محمود")',
         category: 'name_guard',
         persona: 'مريض يسأل تحية ثم يرد باسمه فقط ككلمة واحدة مجردة',
         description: 'التقاط الاسم المفرد مباشرة دون تكرار السؤال عن الاسم والانتقال للتحية والاستفسار',
@@ -509,9 +509,9 @@ const QA_TEST_SUITE = [
             {
                 userMessage: 'صباح الخير',
                 assertions: {
-                    mustInclude: ['اسم حضرتك'],
-                    stateCheck: (state) => state.awaitingName === true,
-                    description: 'طلب اسم المريض وتفعيل حالة انتظار الاسم'
+                    mustInclude: ['صباح الورد والياسمين', 'إزاي أقدر أساعدك'],
+                    stateCheck: (state) => !state.awaitingName && !state.patientName,
+                    description: 'الرد بالتحية الصباحية دون طلب الاسم إجبارياً ودون تفعيل انتظار الاسم'
                 }
             },
             {
@@ -569,8 +569,9 @@ const QA_TEST_SUITE = [
             {
                 userMessage: 'صباح الخير',
                 assertions: {
-                    mustInclude: ['اسم حضرتك'],
-                    stateCheck: (state) => state.awaitingName === true
+                    mustInclude: ['صباح الورد والياسمين'],
+                    stateCheck: (state) => !state.awaitingName && !state.patientName,
+                    description: 'الترحيب دون طلب الاسم إجبارياً'
                 }
             },
             {
@@ -683,10 +684,11 @@ const QA_TEST_SUITE = [
         description: 'الرد بأدب دون اعتبار التحية اسماً وإعادة طلب الاسم ثم استخراج الاسم الحقيقي بدقة',
         turns: [
             {
-                userMessage: 'مساء الخير',
+                userMessage: 'عايز أحجز كشف أسنان مع دكتور أحمد شريف يوم السبت الساعة 5:00 مساءً',
                 assertions: {
                     mustInclude: ['اسم حضرتك'],
-                    stateCheck: (state) => state.awaitingName === true
+                    stateCheck: (state) => state.awaitingName === true,
+                    description: 'طلب اسم المريض لتأكيد الحجز وتفعيل حالة انتظار الاسم'
                 }
             },
             {
@@ -699,11 +701,11 @@ const QA_TEST_SUITE = [
                 }
             },
             {
-                userMessage: 'علي حسام',
+                userMessage: 'علي حسام حسن',
                 assertions: {
-                    mustInclude: ['أستاذ علي حسام', 'إزاي أقدر أساعدك النهاردة؟'],
-                    stateCheck: (state) => state.userName === 'علي حسام' && !state.awaitingName,
-                    description: 'التقاط الاسم الحقيقي المكون من كلمتين وحفظه'
+                    mustInclude: ['أستاذ علي'],
+                    stateCheck: (state) => state.patientName === 'علي حسام حسن' && !state.awaitingName,
+                    description: 'التقاط الاسم الحقيقي وحفظه كاملاً ومخاطبته بالاسم الأول والانتقال لطلب الهاتف'
                 }
             }
         ]

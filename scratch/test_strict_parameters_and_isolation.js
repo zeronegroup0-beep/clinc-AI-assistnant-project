@@ -132,7 +132,7 @@ async function runStrictTests() {
             const dataFresh = await postFresh.json();
             console.log('Fresh Session reply:', dataFresh.reply);
 
-            if (dataFresh.reply.includes('اسم حضرتك') && !dataFresh.reply.includes('وليد')) {
+            if (dataFresh.reply.includes('وعليكم السلام') && !dataFresh.reply.includes('وليد')) {
                 console.log('✅ Test 4C PASSED: Fresh session is completely clean and isolated from previous state!\n');
             } else {
                 console.error('❌ Test 4C FAILED');

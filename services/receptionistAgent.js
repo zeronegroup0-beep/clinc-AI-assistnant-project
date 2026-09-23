@@ -1,5 +1,50 @@
+const path = require('path');
+const fs = require('fs');
 const appointmentService = require('./appointmentService');
-const { detectGender, getGenderedPhrases, isFeminineName, FEMININE_NAMES, MASCULINE_NAMES } = require('../utils/genderUtils');
+const { detectGender, getGenderedPhrases, isFeminineName, FEMININE_NAMES, MASCULINE_NAMES, isTripleName, extractFirstName } = require('../utils/genderUtils');
+const geminiAgent = require('./geminiAgent');
+
+/**
+ * Detect language: English vs Arabic
+ */
+function detectLanguage(text) {
+    if (!text || typeof text !== 'string') return 'ar';
+    const arabicChars = (text.match(/[\u0600-\u06FF]/g) || []).length;
+    const englishChars = (text.match(/[a-zA-Z]/g) || []).length;
+    if (englishChars > arabicChars && englishChars >= 3) {
+        return 'en';
+    }
+    return 'ar';
+}
+
+/**
+ * Detect emotion, temperament and required conversational pacing
+ */
+function detectEmotionAndPacing(text) {
+    if (!text || typeof text !== 'string') return { emotion: 'calm', isUrgent: false, isFrustrated: false };
+    const clean = text.toLowerCase();
+    
+    // Urgent / impatient keywords
+    const urgentKeywords = [
+        'مستعجل', 'مستعجله', 'بسرعة', 'بسرعه', 'ضروري', 'ضرورى', 'حالا', 'حالاً', 
+        'دلوقتي حالا', 'دلوقتي', 'دلوقت', 'فورا', 'فوراً', 'طارئ', 'سريع', 
+        'عايز اخلص', 'عاوز اخلص', 'ما عنديش وقت', 'ماعنديش وقت', 'مش فاضي', 'مش فاضية'
+    ];
+    const isUrgent = urgentKeywords.some(kw => clean.includes(kw));
+
+    // Frustrated / angry keywords
+    const angryKeywords = [
+        'زفت', 'سيء', 'سيئة', 'بطيء', 'بطيئين', 'ليه التأخير', 'ايه التأخير', 
+        'مش نافع', 'خدمة سيئة', 'مش فاهمين', 'ايه القرف', 'ايه ده', 'تعبتوني', 'قرفتوني', 'حسبي الله'
+    ];
+    const isFrustrated = angryKeywords.some(kw => clean.includes(kw));
+
+    return {
+        emotion: isFrustrated ? 'frustrated' : (isUrgent ? 'urgent' : 'calm'),
+        isUrgent,
+        isFrustrated
+    };
+}
 
 const ARABIC_DAYS = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
 const ENGLISH_DAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
@@ -214,6 +259,13 @@ const UNIVERSAL_GENERIC_BOOKING_REPLY = `أهلاً بك! نورت عيادتن�
 
 function getUniversalGenericBookingReply(gp = {}, honorific = null, isNewNameIntroduction = false, isMidConversation = false) {
     const verb = gp.isFemale ? 'تحبي تكشفي' : 'تحب تكشف';
+    if (isNewNameIntroduction && honorific) {
+        const nawwart = gp.nawwart || (gp.isFemale ? 'نورتِ' : 'نورت');
+        const greeting = gp.isFemale
+            ? `أهلاً بكِ يا ${honorific}! ${nawwart} عيادتنا سمارت كلينك 🌸`
+            : `أهلاً بك يا ${honorific}! ${nawwart} عيادتنا سمارت كلينك 🌸`;
+        return `${greeting}\nعشان أقدر أساعدك بأدق ميعاد، ${verb} في أي تخصص أو مع أي دكتور من استشاريينا؟\n\n• د. أحمد شريف (طب وجراحة الأسنان)\n• د. سارة محمود (الجلدية والتجميل والليزر)\n• د. حسام فتحي (أمراض الباطنة والقلب)\n• د. مريم نبيل (طب وجراحة العيون)`;
+    }
     if (isMidConversation) {
         const title = honorific ? ` يا ${honorific}` : ' يا فندم';
         return `تمام${title}! عشان أقدر أساعدك بأدق ميعاد، ${verb} في أي تخصص أو مع أي دكتور من استشاريينا؟\n\n• د. أحمد شريف (طب وجراحة الأسنان)\n• د. سارة محمود (الجلدية والتجميل والليزر)\n• د. حسام فتحي (أمراض الباطنة والقلب)\n• د. مريم نبيل (طب وجراحة العيون)`;
@@ -222,19 +274,15 @@ function getUniversalGenericBookingReply(gp = {}, honorific = null, isNewNameInt
         return UNIVERSAL_GENERIC_BOOKING_REPLY;
     }
     let greeting = 'أهلاً بك! نورت عيادتنا سمارت كلينك 🌸';
-    if (isNewNameIntroduction && honorific) {
-        greeting = gp.isFemale
-            ? `أهلاً بكِ يا ${honorific}! نورتِ عيادتنا سمارت كلينك 🌸`
-            : `أهلاً بك يا ${honorific}! نورت عيادتنا سمارت كلينك 🌸`;
-    }
     return `${greeting}\nعشان أقدر أساعدك بأدق ميعاد، ${verb} في أي تخصص أو مع أي دكتور من استشاريينا؟\n\n• د. أحمد شريف (طب وجراحة الأسنان)\n• د. سارة محمود (الجلدية والتجميل والليزر)\n• د. حسام فتحي (أمراض الباطنة والقلب)\n• د. مريم نبيل (طب وجراحة العيون)`;
 }
 
 /**
  * Resolve slot selection when user responds with an ordinal, index, or slot number (e.g. "3", "1", "2", "التالت", "الميعاد التالت", "رقم 3")
  */
-function resolveSlotFromSelection(text, state = {}) {
-    if (!text || !state.presentedSlots || !Array.isArray(state.presentedSlots) || state.presentedSlots.length === 0) {
+function resolveSlotFromSelection(text, stateOrSlots = {}) {
+    const slots = Array.isArray(stateOrSlots) ? stateOrSlots : (stateOrSlots.presentedSlots || []);
+    if (!text || !Array.isArray(slots) || slots.length === 0) {
         return null;
     }
     const clean = text.toLowerCase()
@@ -246,35 +294,62 @@ function resolveSlotFromSelection(text, state = {}) {
         .replace(/\s+/g, ' ')
         .trim();
 
+    // 1. Check if user typed a bare hour or hour+fraction that matches an actual slot time
+    // E.g. "4", "4 ونص", "4:30", "5", "5:30", "6", "1"
+    const bareHourMatch = clean.match(/^(?:الساعة\s*|ساعة\s*)?([1-9]|1[0-2])(?:\s*(?:م|مساء|مساءً|عصرا|عصراً|pm))?$/);
+    if (bareHourMatch) {
+        const h = bareHourMatch[1];
+        const hPad = h.padStart(2, '0');
+        const matchingExact = slots.find(s => 
+            s.startsWith(`${h}:00`) || s.startsWith(`${hPad}:00`) || 
+            s.startsWith(`${h}:`) || s.startsWith(`${hPad}:`)
+        );
+        if (matchingExact) {
+            return matchingExact;
+        }
+    }
+
+    const halfHourMatch = clean.match(/^(?:الساعة\s*|ساعة\s*)?([1-9]|1[0-2])\s*(?:ونص|ونصف|:30)(?:\s*(?:م|مساء|مساءً|pm))?$/);
+    if (halfHourMatch) {
+        const h = halfHourMatch[1];
+        const hPad = h.padStart(2, '0');
+        const matchingHalf = slots.find(s => 
+            s.startsWith(`${h}:30`) || s.startsWith(`${hPad}:30`)
+        );
+        if (matchingHalf) {
+            return matchingHalf;
+        }
+    }
+
     // If user explicitly stated an hour with "الساعة" or ":", prefer explicit time matching
     if (/(?:الساعة|الساعه|ساعة|ساعه)\s*\d+|:\d{2}/.test(clean)) {
         return null;
     }
 
-    const slots = state.presentedSlots;
     let targetIndex = null;
 
-    if (/^(?:1|١|الاول|الأول|اول ميعاد|أول ميعاد|الميعاد الاول|الميعاد الأول|رقم 1|رقم ١|واحد|الاولاني)$/.test(clean) ||
+    // 2. Explicit ordinals & "رقم X"
+    if (/^(?:الاول|الأول|اول ميعاد|أول ميعاد|الميعاد الاول|الميعاد الأول|رقم 1|رقم ١|واحد|الاولاني)$/.test(clean) ||
         /(?:اخترت|اختار|احجز|عايز|عاوز|هاخد|تناسبني|يناسبني)\s*(?:الميعاد\s+)?(?:الاول|الأول|رقم\s*1|رقم\s*١)/.test(clean)) {
         targetIndex = 0;
-    } else if (/^(?:2|٢|التاني|الثاني|تاني ميعاد|ثاني ميعاد|الميعاد التاني|الميعاد الثاني|رقم 2|رقم ٢|اتنين|اثنين)$/.test(clean) ||
+    } else if (/^(?:التاني|الثاني|تاني ميعاد|ثاني ميعاد|الميعاد التاني|الميعاد الثاني|رقم 2|رقم ٢|اتنين|اثنين)$/.test(clean) ||
         /(?:اخترت|اختار|احجز|عايز|عاوز|هاخد|تناسبني|يناسبني)\s*(?:الميعاد\s+)?(?:التاني|الثاني|رقم\s*2|رقم\s*٢)/.test(clean)) {
         targetIndex = 1;
-    } else if (/^(?:3|٣|التالت|الثالث|تالت ميعاد|ثالث ميعاد|الميعاد التالت|الميعاد الثالث|رقم 3|رقم ٣|تلاتة|ثلاثة)$/.test(clean) ||
+    } else if (/^(?:التالت|الثالث|تالت ميعاد|ثالث ميعاد|الميعاد التالت|الميعاد الثالث|رقم 3|رقم ٣|تلاتة|ثلاثة)$/.test(clean) ||
         /(?:اخترت|اختار|احجز|عايز|عاوز|هاخد|تناسبني|يناسبني)\s*(?:الميعاد\s+)?(?:التالت|الثالث|رقم\s*3|رقم\s*٣)/.test(clean)) {
         targetIndex = 2;
-    } else if (/^(?:4|٤|الرابع|رابع ميعاد|الميعاد الرابع|رقم 4|رقم ٤|اربعة|أربعة)$/.test(clean) ||
+    } else if (/^(?:الرابع|رابع ميعاد|الميعاد الرابع|رقم 4|رقم ٤|اربعة|أربعة)$/.test(clean) ||
         /(?:اخترت|اختار|احجز|عايز|عاوز|هاخد|تناسبني|يناسبني)\s*(?:الميعاد\s+)?(?:الرابع|رقم\s*4|رقم\s*٤)/.test(clean)) {
         targetIndex = 3;
-    } else if (/^(?:5|٥|الخامس|خامس ميعاد|الميعاد الخامس|رقم 5|رقم ٥|خمسة)$/.test(clean) ||
+    } else if (/^(?:الخامس|خامس ميعاد|الميعاد الخامس|رقم 5|رقم ٥|خمسة)$/.test(clean) ||
         /(?:اخترت|اختار|احجز|عايز|عاوز|هاخد|تناسبني|يناسبني)\s*(?:الميعاد\s+)?(?:الخامس|رقم\s*5|رقم\s*٥)/.test(clean)) {
         targetIndex = 4;
     } else if (/^(?:الاخير|الأخير|اخر ميعاد|آخر ميعاد|الميعاد الاخير|الميعاد الأخير)$/.test(clean)) {
         targetIndex = slots.length - 1;
     } else {
-        const singleNumMatch = clean.match(/^(?:رقم\s*)?([1-9]|1[0-2])$/);
-        if (singleNumMatch) {
-            targetIndex = parseInt(singleNumMatch[1], 10) - 1;
+        const explicitNumMatch = clean.match(/^رقم\s*([1-9]|1[0-2])$/);
+        if (explicitNumMatch) {
+            targetIndex = parseInt(explicitNumMatch[1], 10) - 1;
         }
     }
 
@@ -1147,8 +1222,9 @@ function extractDoctorAndSpecialty(text, state = {}) {
     }
 
     // Cardiology / Internal Medicine
+    const isDiabetesMention = !clean.includes('سكرتار') && (/(?:^|\s)(?:سكر|السكر|السكري)(?:$|\s)/.test(clean) || clean.includes('مرض السكر') || clean.includes('تحليل سكر') || clean.includes('غيبوبة سكر'));
     if (clean.includes('باطنة') || clean.includes('باطنه') || clean.includes('قلب') || 
-        clean.includes('ضغط') || clean.includes('سكر') || clean.includes('حسام') || clean.includes('hossam')) {
+        clean.includes('ضغط') || isDiabetesMention || clean.includes('حسام') || clean.includes('hossam')) {
         return buildDoctorEntity('dr_hossam', matchedService);
     }
 
@@ -1178,99 +1254,75 @@ function extractTimeSlot(text, state = {}) {
     if (!text) return null;
     const clean = text.toLowerCase().trim();
 
-    // If user is selecting an option from presented slots, don't parse bare digit as fixed time
-    const hasPresentedSlots = Boolean(state && state.presentedSlots && state.presentedSlots.length > 0);
+    // Strip Egyptian and long phone numbers so they don't get misparsed as hours
+    const cleanWithoutPhone = clean.replace(/(?:01\d{9}|\+?201\d{9}|\b\d{10,}\b)/g, ' ');
 
-    // If message contains day name followed by a standalone single digit without an explicit time marker (e.g. "يوم الأحد 1" or "يوم الحد 1")
-    const isDayWithTrailingDigit = /(?:يوم|الحد|الأحد|الاحد|السبت|الإثنين|الاتنين|الثلاثاء|التلات|الأربعاء|الاربع|الخميس|الجمعة)\s+[1-9]$/i.test(clean) &&
-                                   !/(?:الساعة|الساعه|ساعة|ساعه|:\d{2}|م$|مساء|صباح)/i.test(clean);
+    // Do NOT parse explicit slot ordinals like "رقم 1", "رقم 2", "الميعاد الأول" as hours
+    if (/^(?:رقم\s*\d+|الميعاد\s+[أ-ي]+)$/.test(cleanWithoutPhone.trim())) {
+        return null;
+    }
 
     // 0. If user is asking for general day schedule / all appointments on a day,
     // they are NOT requesting a specific time unless an explicit hour is stated
-    const isGeneralDayScheduleAsk = /(?:اشوف|نشوف|اعرف|نعرف|سرد|قائمة|قايمة|جدول|عرض|كل|جميع)\s+(?:كل\s+)?(?:المواعيد|مواعيد)/i.test(clean) ||
-                                    /(?:المواعيد|مواعيد)\s+(?:المتاحة|كلها|يوم)/i.test(clean);
-    const hasExplicitTimeMarker = /(?:الساعة|الساعه|ساعة|ساعه)\s*(?:\d+|واحدة|اتنين|تلاتة|ثلاثة|اربعة|أربعة|خمسة|ستة|سبعة|تمانية|ثمانية|تسعة|عشرة)|:\d{2}|\d+\s*(?:ونص|ونصف)/i.test(clean);
+    const isGeneralDayScheduleAsk = /(?:اشوف|نشوف|اعرف|نعرف|سرد|قائمة|قايمة|جدول|عرض|كل|جميع)\s+(?:كل\s+)?(?:المواعيد|مواعيد)/i.test(cleanWithoutPhone) ||
+                                    /(?:المواعيد|مواعيد)\s+(?:المتاحة|كلها|يوم)/i.test(cleanWithoutPhone);
+    const hasExplicitTimeMarker = /(?:الساعة|الساعه|ساعة|ساعه|ميعاد|معاد|at)\s*(?:\d+|واحدة|اتنين|تلاتة|ثلاثة|اربعة|أربعة|خمسة|ستة|سبعة|تمانية|ثمانية|تسعة|عشرة)|:\d{2}|\d+\s*(?:ونص|ونصف|مساءً|عصراً|صباحاً)/i.test(cleanWithoutPhone);
     if (isGeneralDayScheduleAsk && !hasExplicitTimeMarker) {
         return null;
     }
 
-    // Protect day names and relative days from false-positive hour extraction (e.g. "الاتنين" contains "اتنين", "يوم التلات")
-    let cleanForTime = clean
-        .replace(/ال[إا]تنين/g, ' ')
-        .replace(/ال[إا]ثنين/g, ' ')
-        .replace(/يوم\s+[أ-ي]+/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
+    // 1. Half-hour fractions (Arabic & English):
+    if (/(?:4\s*(?:ونص|ونصف)|4:30|4\.30|four\s*thirty)/i.test(cleanWithoutPhone)) return '4:30 مساءً';
+    if (/(?:5\s*(?:ونص|ونصف)|5:30|5\.30|five\s*thirty)/i.test(cleanWithoutPhone)) return '5:30 مساءً';
+    if (/(?:6\s*(?:ونص|ونصف)|6:30|6\.30|six\s*thirty)/i.test(cleanWithoutPhone)) return '6:30 مساءً';
+    if (/(?:7\s*(?:ونص|ونصف)|7:30|7\.30|seven\s*thirty)/i.test(cleanWithoutPhone)) return '7:30 مساءً';
+    if (/(?:8\s*(?:ونص|ونصف)|8:30|8\.30|eight\s*thirty)/i.test(cleanWithoutPhone)) return '8:30 مساءً';
+    if (/(?:2\s*(?:ونص|ونصف)|2:30|2\.30|two\s*thirty)/i.test(cleanWithoutPhone)) return '2:30 مساءً';
+    if (/(?:1\s*(?:ونص|ونصف)|1:30|1\.30|one\s*thirty)/i.test(cleanWithoutPhone)) return '1:30 مساءً';
+    if (/(?:3\s*(?:ونص|ونصف)|3:30|3\.30|three\s*thirty)/i.test(cleanWithoutPhone)) return '3:30 مساءً';
 
-    // Check fractions first
-    if (cleanForTime.includes('4:30') || cleanForTime.includes('اربعة ونصف') || cleanForTime.includes('أربعة ونصف') || cleanForTime.includes('اربعة ونص') || cleanForTime.includes('أربعة ونص') || cleanForTime.includes('4 ونص') || cleanForTime.includes('4 ونصف')) {
-        return '4:30 مساءً';
-    }
-    if (cleanForTime.includes('5:30') || cleanForTime.includes('خمسة ونصف') || cleanForTime.includes('خمسة ونص') || cleanForTime.includes('5 ونص') || cleanForTime.includes('5 ونصف')) {
-        return '5:30 مساءً';
-    }
-    if (cleanForTime.includes('6:30') || cleanForTime.includes('ستة ونصف') || cleanForTime.includes('ستة ونص') || cleanForTime.includes('6 ونص') || cleanForTime.includes('6 ونصف')) {
-        return '6:30 مساءً';
-    }
-    if (cleanForTime.includes('7:30') || cleanForTime.includes('سبعة ونصف') || cleanForTime.includes('سبعة ونص') || cleanForTime.includes('7 ونص') || cleanForTime.includes('7 ونصف')) {
-        return '7:30 مساءً';
-    }
-    if (cleanForTime.includes('2:30') || cleanForTime.includes('اتنين ونص') || cleanForTime.includes('2 ونص') || cleanForTime.includes('اتنين ونصف')) {
-        return '2:30 مساءً';
-    }
-    if (cleanForTime.includes('8:30') || cleanForTime.includes('تمانية ونص') || cleanForTime.includes('ثمانية ونص') || cleanForTime.includes('8 ونص')) {
-        return '8:30 مساءً';
-    }
-
-    // Direct negotiation patterns: "خليها 6", "خيلها 6", "خليه 6", "خليها 7", "يناسبني 6", "مناسب 6", "على 6"
-    // Make sure this is not part of a phone number or multi-digit string (e.g. 010...)
-    if (!/\d{3,}/.test(cleanForTime)) {
-        const negotiationMatch = cleanForTime.match(/(?:خليها|خيلها|خليه|خلية|نخليها|خلينا|يناسبني|مناسب|على|علي)\s*(?:الساعة|الساعه|ساعة|ساعه)?\s*([1-9]|1[0-2])(?!\d)/);
-        if (negotiationMatch) {
-            const h = parseInt(negotiationMatch[1], 10);
-            if (h >= 1 && h <= 10) {
-                return `${h}:00 مساءً`;
-            }
+    // 2. Check for day name + hour: e.g. "الحد 4", "الأحد 4", "يوم الإثنين 5", "Sunday 4", "Monday 6"
+    const dayHourMatch = cleanWithoutPhone.match(/(?:الحد|الأحد|الاحد|السبت|الإثنين|الاتنين|الثلاثاء|التلات|الأربعاء|الاربع|الخميس|الجمعة|sunday|monday|tuesday|wednesday|thursday|saturday)\s*(?:الساعة\s*|ساعة\s*|at\s*)?([1-9]|1[0-2])(?::00|\.00|\s*(?:م|مساء|مساءً|عصرا|عصراً|pm))?(?!\d)/i);
+    if (dayHourMatch) {
+        const h = parseInt(dayHourMatch[1], 10);
+        if (h >= 1 && h <= 10) {
+            return `${h}:00 مساءً`;
         }
     }
 
-    const hasTimeContext = Boolean(
-        (state.bookingDraft && (state.bookingDraft.date || state.bookingDraft.doctor)) ||
-        (state.multiDoctorContext && state.multiDoctorContext.step === 'AWAITING_SECOND_DOCTOR_SLOT')
-    );
-    const allowBareDigit = !hasPresentedSlots && !isDayWithTrailingDigit && hasTimeContext;
-
-    // Exact hours
-    if (cleanForTime.includes('1:00') || /(?:الساعة|الساعه|ساعة|ساعه|على|علي|خليها|خليه|يناسبني|مناسب)\s*(?:1|واحدة)/.test(cleanForTime) || (allowBareDigit && (cleanForTime === 'واحدة' || cleanForTime === '1'))) {
+    // 3. Exact hours with explicit hour markers or bare hours:
+    // E.g. "الساعة 4", "4:00", "4 pm", "4 م", "4 مساء", "خليها 4", "على 4" or just "4"
+    if (cleanWithoutPhone.includes('1:00') || /(?:الساعة|الساعه|ساعة|ساعه|على|علي|خليها|خليه|ميعاد|معاد|يناسبني|مناسب|at)\s*(?:1|واحدة|one)/i.test(cleanWithoutPhone) || /(?:^|\s)1\s*(?:م|مساء|مساءً|عصرا|عصراً|pm)(?:\s|$|[،.,])/i.test(cleanWithoutPhone) || cleanWithoutPhone.trim() === '1' || cleanWithoutPhone.trim() === 'واحدة' || cleanWithoutPhone.trim() === 'one') {
         return '1:00 مساءً';
     }
-    if (cleanForTime.includes('2:00') || /(?:الساعة|الساعه|ساعة|ساعه|على|علي|خليها|خليه|يناسبني|مناسب)\s*(?:2|اتنين|اثنين)/.test(cleanForTime) || (allowBareDigit && (cleanForTime === 'اتنين' || cleanForTime === '2'))) {
+    if (cleanWithoutPhone.includes('2:00') || /(?:الساعة|الساعه|ساعة|ساعه|على|علي|خليها|خليه|ميعاد|معاد|يناسبني|مناسب|at)\s*(?:2|اتنين|اثنين|two)/i.test(cleanWithoutPhone) || /(?:^|\s)2\s*(?:م|مساء|مساءً|عصرا|عصراً|pm)(?:\s|$|[،.,])/i.test(cleanWithoutPhone) || cleanWithoutPhone.trim() === '2' || cleanWithoutPhone.trim() === 'اتنين' || cleanWithoutPhone.trim() === 'اثنين' || cleanWithoutPhone.trim() === 'two') {
         return '2:00 مساءً';
     }
-    if (cleanForTime.includes('3:00') || /(?:الساعة|الساعه|ساعة|ساعه|على|علي|خليها|خليه|يناسبني|مناسب)\s*(?:3|تلاتة|ثلاثة)/.test(cleanForTime) || (allowBareDigit && (cleanForTime === 'تلاتة' || cleanForTime === '3'))) {
+    if (cleanWithoutPhone.includes('3:00') || /(?:الساعة|الساعه|ساعة|ساعه|على|علي|خليها|خليه|ميعاد|معاد|يناسبني|مناسب|at)\s*(?:3|تلاتة|ثلاثة|three)/i.test(cleanWithoutPhone) || /(?:^|\s)3\s*(?:م|مساء|مساءً|عصرا|عصراً|pm)(?:\s|$|[،.,])/i.test(cleanWithoutPhone) || cleanWithoutPhone.trim() === '3' || cleanWithoutPhone.trim() === 'تلاتة' || cleanWithoutPhone.trim() === 'ثلاثة' || cleanWithoutPhone.trim() === 'three') {
         return '3:00 مساءً';
     }
-    if (cleanForTime.includes('4:00') || /(?:الساعة|الساعه|ساعة|ساعه|على|علي|خليها|خليه|يناسبني|مناسب)\s*(?:4|اربعة|أربعة)/.test(cleanForTime) || (allowBareDigit && (cleanForTime === 'اربعة' || cleanForTime === '4'))) {
+    if (cleanWithoutPhone.includes('4:00') || /(?:الساعة|الساعه|ساعة|ساعه|على|علي|خليها|خليه|ميعاد|معاد|احجز|احجزي|احجزلي|احجزلى|يناسبني|مناسب|at)\s*(?:4|اربعة|أربعة|four)/i.test(cleanWithoutPhone) || /(?:^|\s)4\s*(?:م|مساء|مساءً|عصرا|عصراً|pm)(?:\s|$|[،.,])/i.test(cleanWithoutPhone) || cleanWithoutPhone.trim() === '4' || cleanWithoutPhone.trim() === 'اربعة' || cleanWithoutPhone.trim() === 'أربعة' || cleanWithoutPhone.trim() === 'four') {
         return '4:00 مساءً';
     }
-    if (cleanForTime.includes('5:00') || /(?:الساعة|الساعه|ساعة|ساعه|على|علي|خليها|خليه|يناسبني|مناسب)\s*(?:5|خمسة)/.test(cleanForTime) || (allowBareDigit && (cleanForTime === 'خمسة' || cleanForTime === '5'))) {
+    if (cleanWithoutPhone.includes('5:00') || /(?:الساعة|الساعه|ساعة|ساعه|على|علي|خليها|خليه|ميعاد|معاد|يناسبني|مناسب|at)\s*(?:5|خمسة|five)/i.test(cleanWithoutPhone) || /(?:^|\s)5\s*(?:م|مساء|مساءً|عصرا|عصراً|pm)(?:\s|$|[،.,])/i.test(cleanWithoutPhone) || cleanWithoutPhone.trim() === '5' || cleanWithoutPhone.trim() === 'خمسة' || cleanWithoutPhone.trim() === 'five') {
         return '5:00 مساءً';
     }
-    if (cleanForTime.includes('6:00') || /(?:الساعة|الساعه|ساعة|ساعه|على|علي|خليها|خليه|يناسبني|مناسب)\s*(?:6|ستة)/.test(cleanForTime) || (allowBareDigit && (cleanForTime === 'ستة' || cleanForTime === '6'))) {
+    if (cleanWithoutPhone.includes('6:00') || /(?:الساعة|الساعه|ساعة|ساعه|على|علي|خليها|خليه|ميعاد|معاد|يناسبني|مناسب|at)\s*(?:6|ستة|six)/i.test(cleanWithoutPhone) || /(?:^|\s)6\s*(?:م|مساء|مساءً|عصرا|عصراً|pm)(?:\s|$|[،.,])/i.test(cleanWithoutPhone) || cleanWithoutPhone.trim() === '6' || cleanWithoutPhone.trim() === 'ستة' || cleanWithoutPhone.trim() === 'six') {
         return '6:00 مساءً';
     }
-    if (cleanForTime.includes('7:00') || /(?:الساعة|الساعه|ساعة|ساعه|على|علي|خليها|خليه|يناسبني|مناسب)\s*(?:7|سبعة)/.test(cleanForTime) || (allowBareDigit && (cleanForTime === 'سبعة' || cleanForTime === '7'))) {
+    if (cleanWithoutPhone.includes('7:00') || /(?:الساعة|الساعه|ساعة|ساعه|على|علي|خليها|خليه|ميعاد|معاد|يناسبني|مناسب|at)\s*(?:7|سبعة|seven)/i.test(cleanWithoutPhone) || /(?:^|\s)7\s*(?:م|مساء|مساءً|عصرا|عصراً|pm)(?:\s|$|[،.,])/i.test(cleanWithoutPhone) || cleanWithoutPhone.trim() === '7' || cleanWithoutPhone.trim() === 'سبعة' || cleanWithoutPhone.trim() === 'seven') {
         return '7:00 مساءً';
     }
-    if (cleanForTime.includes('8:00') || /(?:الساعة|الساعه|ساعة|ساعه|على|علي|خليها|خليه|يناسبني|مناسب)\s*(?:8|تمانية|ثمانية)/.test(cleanForTime) || (allowBareDigit && (cleanForTime === 'تمانية' || cleanForTime === '8'))) {
+    if (cleanWithoutPhone.includes('8:00') || /(?:الساعة|الساعه|ساعة|ساعه|على|علي|خليها|خليه|ميعاد|معاد|يناسبني|مناسب|at)\s*(?:8|تمانية|ثمانية|eight)/i.test(cleanWithoutPhone) || /(?:^|\s)8\s*(?:م|مساء|مساءً|عصرا|عصراً|pm)(?:\s|$|[،.,])/i.test(cleanWithoutPhone) || cleanWithoutPhone.trim() === '8' || cleanWithoutPhone.trim() === 'تمانية' || cleanWithoutPhone.trim() === 'ثمانية' || cleanWithoutPhone.trim() === 'eight') {
         return '8:00 مساءً';
     }
-    if (cleanForTime.includes('9:00') || /(?:الساعة|الساعه|ساعة|ساعه|على|علي|خليها|خليه|يناسبني|مناسب)\s*(?:9|تسعة)/.test(cleanForTime) || (allowBareDigit && (cleanForTime === 'تسعة' || cleanForTime === '9'))) {
+    if (cleanWithoutPhone.includes('9:00') || /(?:الساعة|الساعه|ساعة|ساعه|على|علي|خليها|خليه|ميعاد|معاد|يناسبني|مناسب|at)\s*(?:9|تسعة|nine)/i.test(cleanWithoutPhone) || /(?:^|\s)9\s*(?:م|مساء|مساءً|عصرا|عصراً|pm)(?:\s|$|[،.,])/i.test(cleanWithoutPhone) || cleanWithoutPhone.trim() === '9' || cleanWithoutPhone.trim() === 'تسعة' || cleanWithoutPhone.trim() === 'nine') {
         return '9:00 مساءً';
     }
-    if (cleanForTime.includes('بالليل') || cleanForTime.includes('بيلعيل') || (cleanForTime.includes('في المساء') && !cleanForTime.includes('مساء الخير') && !cleanForTime.includes('مساء الورد') && !cleanForTime.includes('مساء النور'))) {
+    if (cleanWithoutPhone.includes('بالليل') || cleanWithoutPhone.includes('في المساء') || cleanWithoutPhone.includes('evening')) {
         return '7:00 مساءً';
     }
+
     return null;
 }
 
@@ -1344,11 +1396,19 @@ function isEmergencyMessage(text) {
         .replace(/[إأآ]/g, 'ا')
         .replace(/ة/g, 'ه');
     const emergencyKeywords = [
-        'نزيف', 'الم لا يطاق', 'طوارئ', 'طوارىء', 'حاله حرجه',
+        'نزيف', 'الم لا يطاق', 'وجع لا يطاق', 'طوارئ', 'طوارىء', 'حاله حرجه', 'حالة حرجة',
         'مش قادر استنى', 'مش قادر استنا', 'مش قادره استنى', 'مش قادره استنا',
-        'اغماء', 'كسر'
+        'اغماء', 'كسر', 'بموت', 'وجع رهيب', 'الم رهيب', 'الم شديد', 'وجع شديد',
+        'ضيق تنفس', 'مش قادر اتنفس', 'مش قادره اتنفس', 'خنقه في صدري', 'خنقة في صدري',
+        'اسعاف', 'جلطه', 'جلطة', 'ذبحه', 'ذبحة', 'تشنجات'
     ];
-    return emergencyKeywords.some(kw => clean.includes(kw));
+    if (emergencyKeywords.some(kw => clean.includes(kw))) return true;
+    if (/(?:الم|وجع|ثقل|نغزه)\s*(?:شديد|فظيع|رهيب|حاد|جامد)?\s*(?:في|ب)?\s*(?:صدري|الصدر)/i.test(clean)) return true;
+    if (/(?:بموت|مش\s*قادر\s*اتنفس|مش\s*قادره\s*اتنفس)/i.test(clean)) return true;
+    // Ambulance hotline 123 only if standalone and not part of an Egyptian phone number
+    const textWithoutPhones = clean.replace(/(?:01\d{9}|\+?201\d{9}|\b\d{5,11}\b)/g, '');
+    if (/(?:^|\D)123(?:\D|$)/.test(textWithoutPhones) && (clean.includes('اسعاف') || clean.includes('طوارئ') || clean.includes('اتصل') || clean.includes('رقم'))) return true;
+    return false;
 }
 
 /**
@@ -1411,13 +1471,17 @@ const NAME_BLACKLIST = new Set([
     'سعر', 'اسعار', 'أسعار', 'تكلفة', 'تكلفه', 'بكام', 'بكم', 'فلوس', 'جنيه',
     'رقم', 'رقمي', 'تليفون', 'هاتف', 'موبايل', 'واتساب', 'الواتساب',
     'شكرا', 'شكراً', 'تسلم', 'عفوا', 'عفواً', 'ماشي', 'ماشى', 'اوك', 'اوكي', 'حاضر', 'طيب', 'خلاص',
-    'تعبان', 'مريض', 'وجع', 'ألم', 'ضرسي', 'ساني', 'ضرس', 'سنان',
+    'تعبان', 'تعبانة', 'تعبانه', 'مريض', 'مريضة', 'مريضه', 'وجع', 'وجعان', 'موجوع', 'موجوعة', 'ألم', 'ضرسي', 'ساني', 'ضرس', 'سنان',
+    'بموت', 'ميت', 'بنزف', 'دايخ', 'دايخة', 'مغمى', 'مغشي', 'مخنوق', 'مخنوقة', 'عندي', 'عندى',
     'حضرتك', 'فندم', 'باشا', 'أستاذ', 'استاذ', 'أستاذة', 'استاذة',
     'مش', 'غير', 'لا', 'اه', 'نعم', 'ايوة', 'ايوه', 'كل'
 ]);
 
 function containsBlacklistedNameWord(phrase) {
     if (!phrase) return false;
+    if (appointmentService && typeof appointmentService.isWordBlacklisted === 'function') {
+        if (appointmentService.isWordBlacklisted(phrase)) return true;
+    }
     const words = phrase.split(/\s+/);
     return words.some(w => {
         const raw = w.toLowerCase().replace(/[؟?.,!]/g, '');
@@ -1442,12 +1506,13 @@ function extractNameFromMessage(text, isExplicitlyAwaitingName = false) {
         .replace(/(?:01\d{9}|\+?201\d{9}|\b\d{11}\b)/g, '')
         .trim();
 
-    // Explicit introduction patterns ONLY (allows 1 to 4 words name)
+    // Explicit introduction patterns (allows 1 to 4 words name)
     const explicitPatterns = [
-        /(?:اسمي|اسمى)\s+([أ-يa-zA-Z]{2,15}(?:\s+[أ-يa-zA-Z]{2,15}){0,3})/i,
-        /(?:أنا|انا)\s+(?:اسمي|اسمى)?\s*([أ-يa-zA-Z]{2,15}(?:\s+[أ-يa-zA-Z]{2,15}){0,3})/i,
-        /(?:معاك|معك)\s+(?:أستاذ|استاذ|دكتور|باشمهندس|مهندس|مدام|سيدة)?\s*([أ-يa-zA-Z]{2,15}(?:\s+[أ-يa-zA-Z]{2,15}){0,3})/i,
-        /(?:الحجز\s+باسم|سجل\s+باسم|باسم)\s+([أ-يa-zA-Z]{2,15}(?:\s+[أ-يa-zA-Z]{2,15}){0,3})/i
+        /(?:اسمي|اسمى)\s+(?:بالكامل\s+هو|بالكامل|هو\s+ايضا|هو)?\s*([ء-يa-zA-Z]{2,15}(?:\s+[ء-يa-zA-Z]{2,15}){0,3})/i,
+        /(?:أنا|انا)\s+(?:اسمي|اسمى)?\s*(?:بالكامل)?\s*([ء-يa-zA-Z]{2,15}(?:\s+[ء-يa-zA-Z]{2,15}){0,3})/i,
+        /(?:معاك|معك)\s+(?:أستاذ|استاذ|دكتور|باشمهندس|مهندس|مدام|سيدة)?\s*(?:بالكامل)?\s*([ء-يa-zA-Z]{2,15}(?:\s+[ء-يa-zA-Z]{2,15}){0,3})/i,
+        /(?:الحجز\s+باسم|سجل\s+باسم|باسم)\s+([ء-يa-zA-Z]{2,15}(?:\s+[ء-يa-zA-Z]{2,15}){0,3})/i,
+        /^(?:أستاذ|استاذ|دكتور|دكتورة|دكتوره|باشمهندس|مهندس|مدام|سيدة|كابتن|م\/|د\/)\s+([ء-يa-zA-Z]{2,15}(?:\s+[ء-يa-zA-Z]{2,15}){0,3})/i
     ];
 
     const hasPhoneInMessage = /(?:01\d{9}|\+?201\d{9}|\b\d{11}\b)/.test(clean);
@@ -1457,10 +1522,11 @@ function extractNameFromMessage(text, isExplicitlyAwaitingName = false) {
             .replace(/:\d{2}/g, '')
             .replace(/^(?:تمام|اه|أه|ايوة|ايوه|ماشي|ماشى|اوك|اوكي|موافق|أكد|اكد|سجل|احجز|و)\s+/gi, '')
             .replace(/^(?:تمام|اه|أه|ايوة|ايوه|ماشي|ماشى|اوك|اوكي|موافق|أكد|اكد|سجل|احجز|و)\s+/gi, '')
+            .replace(/^(?:اسمي|اسمى)?\s*(?:بالكامل\s+هو|بالكامل|هو)?\s*/gi, '')
             .trim();
         if (nameCandidate.startsWith('و')) nameCandidate = nameCandidate.slice(1).trim();
         const candidateWords = nameCandidate.split(/\s+/).filter(Boolean);
-        if (candidateWords.length >= 1 && candidateWords.length <= 3) {
+        if (candidateWords.length >= 1 && candidateWords.length <= 4) {
             const hasBookingOrIntent = /(?:عايز|عاوز|احجز|حجز|كشف|بكام|سعر|فين|مكان|عايزة|عاوزه|مواعيد|فاضيين|ميعاد|موعد|دكتور|دكتورة|تخصص|اشوف|اعرف|استشارة|جلسة|اسنان|جلدية|باطنة|عيون|كنت|حابب|حابة)/i.test(nameCandidate);
             if (!hasBookingOrIntent && !containsBlacklistedNameWord(nameCandidate) && !/\d/.test(nameCandidate) && nameCandidate.length >= 2) {
                 return nameCandidate;
@@ -1472,13 +1538,14 @@ function extractNameFromMessage(text, isExplicitlyAwaitingName = false) {
     const NAME_STOP_WORDS = new Set([
         'ورقمي', 'ورقمى', 'ورقم', 'وتليفوني', 'وتليفونى', 'رقمي', 'رقمى', 'تليفوني', 'تليفونى', 
         'وعايز', 'وعايزة', 'وعاوز', 'وعاوزة', 'وحابب', 'وحابة', 'وعندي', 'وعندى', 'مش', 'لا', 'غير',
-        'كشف', 'حجز', 'احجز', 'كنت'
+        'كشف', 'حجز', 'احجز', 'كنت', 'بالكامل', 'كامل'
     ]);
 
     for (const pattern of explicitPatterns) {
         const match = effectiveClean.match(pattern);
         if (match && match[1]) {
             let candidate = match[1].trim();
+            candidate = candidate.replace(/^(?:بالكامل|كامل|هو|هو\s+ايضا|ايضا)\s+/gi, '').trim();
             const words = candidate.split(/\s+/);
             const stopIdx = words.findIndex(w => NAME_STOP_WORDS.has(w.toLowerCase()));
             if (stopIdx !== -1) {
@@ -1491,21 +1558,33 @@ function extractNameFromMessage(text, isExplicitlyAwaitingName = false) {
         }
     }
 
-    // ONLY if the bot specifically asked for the name in the immediately preceding turn
-    if (isExplicitlyAwaitingName) {
-        let candidate = effectiveClean;
-        const words = candidate.split(/\s+/);
-        const stopIdx = words.findIndex(w => NAME_STOP_WORDS.has(w.toLowerCase()));
-        if (stopIdx !== -1) {
-            candidate = words.slice(0, stopIdx).join(' ').trim();
-        }
-        const hasBookingOrIntent = /(?:عايز|عاوز|احجز|حجز|كشف|بكام|سعر|فين|مكان|عايزة|عاوزه|مواعيد|فاضيين|ميعاد|موعد|دكتور|دكتورة|تخصص|اشوف|اعرف|استشارة|جلسة|اسنان|جلدية|باطنة|عيون|كنت|حابب|حابة)/i.test(candidate);
-        if (hasBookingOrIntent) {
-            return null;
-        }
+    // Standalone Name Candidate Extraction:
+    // If explicitly awaiting name, accept 1 to 4 clean words.
+    // If not explicitly awaiting name, accept 2 to 4 clean words (e.g. "أسامة الغزالي") OR a known first name!
+    let candidate = effectiveClean;
+    const titleMatch = candidate.match(/^(?:أستاذ|استاذ|دكتور|دكتورة|دكتوره|باشمهندس|مهندس|مدام|سيدة|كابتن|م\/|د\/)\s+([ء-يa-zA-Z\s]{2,40})$/i);
+    if (titleMatch) {
+        candidate = titleMatch[1].trim();
+    }
+    const words = candidate.split(/\s+/);
+    const stopIdx = words.findIndex(w => NAME_STOP_WORDS.has(w.toLowerCase()));
+    if (stopIdx !== -1) {
+        candidate = words.slice(0, stopIdx).join(' ').trim();
+    }
+    const hasBookingOrIntent = /(?:عايز|عاوز|احجز|حجز|كشف|بكام|سعر|فين|مكان|عايزة|عاوزه|مواعيد|فاضيين|ميعاد|موعد|دكتور|دكتورة|تخصص|اشوف|اعرف|استشارة|جلسة|اسنان|جلدية|باطنة|عيون|كنت|حابب|حابة|خدمات|تأمين|تامين|فرع|فروع)/i.test(candidate);
+    if (!hasBookingOrIntent && !hasPhoneInMessage && !/\d/.test(candidate)) {
         const candidateWords = candidate.split(/\s+/).filter(Boolean);
-        if (candidateWords.length >= 1 && candidateWords.length <= 4 && !containsBlacklistedNameWord(candidate) && !/\d/.test(candidate) && /^[أ-يa-zA-Z\s]{2,40}$/.test(candidate)) {
-            return candidate;
+        if (candidateWords.length >= 1 && candidateWords.length <= 4 && !containsBlacklistedNameWord(candidate) && /^[ء-يa-zA-Z\s]{2,40}$/.test(candidate)) {
+            const firstWord = candidateWords[0];
+            const normalizedFirst = firstWord.replace(/[إأآٱ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي');
+            if (isExplicitlyAwaitingName || 
+                candidateWords.length >= 2 || 
+                MASCULINE_NAMES.has(firstWord) || 
+                MASCULINE_NAMES.has(normalizedFirst) || 
+                FEMININE_NAMES.has(firstWord) || 
+                FEMININE_NAMES.has(normalizedFirst)) {
+                return candidate;
+            }
         }
     }
 
@@ -1515,15 +1594,102 @@ function extractNameFromMessage(text, isExplicitlyAwaitingName = false) {
 /**
  * Handle incoming message through the Egyptian Receptionist Dialogue Engine
  */
-async function processChatMessage({ message, sessionId, sessionData = {}, currentDate = new Date() }) {
+async function internalProcessChatMessage({ message, sessionId, sessionData = {}, currentDate = new Date() }) {
     const rawText = message.trim();
     const normalizedText = normalizeTypoAndSlang(rawText);
     const reasoningSteps = [];
     let state = { ...sessionData };
 
-    // -------------------------------------------------------------
-    // MODULE 1: EMERGENCY & CRITICAL SAFETY INTERCEPTOR
-    // -------------------------------------------------------------
+    // 0.0 BLACKLIST 3-STRIKE DISCIPLINARY SHIELD
+    if (appointmentService && typeof appointmentService.isWordBlacklisted === 'function' && 
+        (appointmentService.isWordBlacklisted(rawText) || appointmentService.isWordBlacklisted(normalizedText))) {
+        state.abuseStrikes = (state.abuseStrikes || 0) + 1;
+        const currentStrike = state.abuseStrikes;
+
+        if (currentStrike === 1) {
+            return {
+                reply: 'نرجو من حضرتك الالتزام بالحديث المهذب واللباقة لمواصلة مساعدتك في العيادة. (تحذير أول ⚠️)',
+                reasoningSteps: ['اكتشاف لفظ محظور من القائمة السوداء - تطبيق الإنذار الأول (Strike 1)'],
+                state
+            };
+        } else if (currentStrike === 2) {
+            return {
+                reply: 'تحذير أخير يا فندم: يرجى الحفاظ على الأدب التام، وتكرار هذه الألفاظ سيؤدي لإغلاق المحادثة وحظر المراسلة مؤقتاً. (تحذير أخير ⚠️)',
+                reasoningSteps: ['اكتشاف تكرار لفظ محظور - تطبيق الإنذار النهائي (Strike 2)'],
+                state
+            };
+        } else {
+            state.isBlocked = true;
+            state.abuseBlocked = true;
+            state.abuseStrikes = 3;
+            state.blockedUntil = Date.now() + 120 * 1000;
+            return {
+                reply: 'تم إنهاء المحادثة وحظر المراسلة مؤقتاً لمدة دقيقتين بسبب تكرار استخدام ألفاظ غير لائقة. يرجى المحاولة لاحقاً بعد انتهاء فترة الحظر.',
+                reasoningSteps: ['المخالفة الثالثة لألفاظ القائمة السوداء - إغلاق المحادثة وحظر المراسلة لمدة دقيقتين وحذف الجلسة'],
+                state,
+                blocked: true,
+                cooldownSeconds: 120
+            };
+        }
+    }
+
+    // 0.05 CRITICAL EMERGENCY SAFETY INTERCEPT (Non-negotiable clinical safety guard)
+    if (isEmergencyMessage(rawText) || isEmergencyMessage(normalizedText) || /(?:ألم|الم|وجع|ثقل|نغزة|نغزه)\s*(?:شديد|فظيع|رهيب|حاد|جامد)?\s*(?:في|ب)?\s*(?:صدري|الصدر)/i.test(normalizedText) || /(?:بموت|مش\s*قادر\s*أتنفس|مش\s*قادر\s*اتنفس|مش\s*قادرة\s*اتنفس)/i.test(normalizedText)) {
+        delete state.bookingDraft;
+        delete state.pendingBooking;
+        delete state.suggestedAlternativeTime;
+        delete state.awaitingPhone;
+        delete state.awaitingName;
+        delete state.awaitingWaitlist;
+        delete state.waitlistSlot;
+        state.emergency = true;
+        state.isEmergency = true;
+        reasoningSteps.push('تفعيل معترض الطوارئ والحالات الحرجة فوراً ووقف الحجز وتوجيه المريض لأقرب قسم طوارئ أو الاتصال بـ 123');
+        return {
+            reply: 'يا فندم سلامتك ألف سلامة! الأعراض دي طارئة وخطيرة جداً وبتتطلب التوجه فوراً لأقرب قسم طوارئ أو الاتصال بالإسعاف (123) حالاً. أرجوك لا تنتظر حجز العيادة وتوجه لأقرب مستشفى فوراً!',
+            reasoningSteps,
+            state
+        };
+    }
+
+    // 0. Gemini Generative AI Agent Hook (if GEMINI_API_KEY is configured)
+    if (geminiAgent && typeof geminiAgent.isGeminiEnabled === 'function' && geminiAgent.isGeminiEnabled()) {
+        const geminiResult = await geminiAgent.processWithGemini({
+            message: rawText,
+            history: state.history || [],
+            state,
+            currentDate
+        });
+        if (geminiResult && geminiResult.reply) {
+            return geminiResult;
+        }
+    }
+
+    // 0.1 Human Secretary & Administration Takeover Detection (Ultra-robust intent intersection)
+    const hasStaffKeyword = /(?:سكرتار|إدار|ادار|خدمة\s*العملاء|ريسبشن|استقبال|بشري|شخص\s*حقيقي|مسؤول|مسئول|مدير|human|secretary|receptionist|admin|management)/i.test(normalizedText) ||
+                            /(?:سكرتار|إدار|ادار|خدمة\s*العملاء|ريسبشن|استقبال|بشري)/i.test(rawText);
+    const hasTakeoverIntent = /(?:تواصل|اتواصل|تكلم|اتكلم|اكلم|تحدث|اتحدث|احكي|وصلني|حولني|عايز|عاوز|محتاج|حابب|اريد|أريد|ممكن|لو\s*سمحت|ياريت|حد|شخص|بني\s*ادم|موظف|speak|talk|transfer|connect|contact)/i.test(normalizedText) ||
+                              /(?:تواصل|اتواصل|اكلم|اتكلم|حولني|وصلني|عايز|عاوز)/i.test(rawText);
+
+    const isHumanTakeoverRequest = (hasStaffKeyword && hasTakeoverIntent) ||
+        /(?:speak|talk|transfer|connect|contact)\s*(?:to\s*|with\s*)?(?:human|receptionist|secretary|staff|agent|admin|management|administration|support|customer\s*service)/i.test(normalizedText) ||
+        /(?:سكرتارية\s*بشرية|تدخل\s*بشري|حد\s*بشري|شخص\s*حقيقي)/i.test(normalizedText);
+
+    if (isHumanTakeoverRequest) {
+        state.humanTakeover = true;
+        state.takeoverRequested = true;
+        state.takeoverRequestedBy = 'patient';
+        state.status = 'awaiting_human';
+        const isEng = detectLanguage(rawText) === 'en';
+        const reply = isEng
+            ? "Certainly! Please hold for a moment while our front-desk reception or management team responds to you directly 🌸"
+            : "حاضر يا فندم من عينينا، خليك ثواني مع حضرتك يا فندم عقبال ما حد من السكرتارية أو الإدارة يرد على حضرتك فوراً 🌸";
+        return {
+            reply,
+            reasoningSteps: ['طلب المريض التحدث إلى الإدارة أو السكرتارية - تفعيل التحويل الفوري لمكتب الاستقبال والسكرتارية'],
+            state
+        };
+    }
     if (isEmergencyMessage(rawText) || isEmergencyMessage(normalizedText)) {
         delete state.bookingDraft;
         delete state.pendingBooking;
@@ -1564,6 +1730,82 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
     state.userGender = state.gender;
     let gp = getGenderedPhrases(state.gender);
     const phoneAnalysis = analyzePhoneNumber(normalizedText);
+
+    // -------------------------------------------------------------
+    // EMOTION & PACING ADAPTATION
+    // -------------------------------------------------------------
+    const emotionAnalysis = detectEmotionAndPacing(normalizedText);
+    state.pacing = emotionAnalysis.emotion; // 'urgent', 'frustrated', or 'calm'
+    if (emotionAnalysis.isUrgent) {
+        reasoningSteps.push('رصد حالة استعجال (Urgent Pacing): تسريع مسار المحادثة والتركيز على المواعيد المباشرة الفورية');
+    }
+    if (emotionAnalysis.isFrustrated) {
+        reasoningSteps.push('رصد استياء أو غضب (Empathetic De-escalation): تقديم اعتذار لطيف وتسهيل الخدمة بأعلى أولوية');
+    }
+
+    // -------------------------------------------------------------
+    // MODULE 1.55: CANCELLATION & RESCHEDULE HANDLER
+    // -------------------------------------------------------------
+    const cleanLowerForIntent = normalizedText.toLowerCase();
+    const isCancellationIntent = cleanLowerForIntent.includes('الغي') || 
+                                 cleanLowerForIntent.includes('إلغاء') || 
+                                 cleanLowerForIntent.includes('الغاء') || 
+                                 cleanLowerForIntent.includes('كنسل') || 
+                                 cleanLowerForIntent.includes('مش جاي') || 
+                                 cleanLowerForIntent.includes('مش هقدر اجي') ||
+                                 cleanLowerForIntent.includes('حذف الحجز');
+
+    const bookingCodeMatch = normalizedText.match(/\b(SC-[0-9A-Z]{4,7}|APT-[0-9A-Z]{4,10}|\b\d{5}\b)\b/i);
+    const candidateCode = bookingCodeMatch ? bookingCodeMatch[1].toUpperCase() : null;
+
+    if (state.awaitingCancellationCodeOrPhone || isCancellationIntent) {
+        const codeToUse = candidateCode || (state.awaitingCancellationCodeOrPhone && /^[A-Z0-9-]{5,15}$/i.test(normalizedText.trim()) ? normalizedText.trim().toUpperCase() : null);
+        const phoneToUse = phoneAnalysis.isValid ? phoneAnalysis.phone : (state.patientPhone || null);
+
+        if (codeToUse || phoneToUse) {
+            delete state.awaitingCancellationCodeOrPhone;
+            reasoningSteps.push(`تشغيل مسار إلغاء الحجز عبر appointmentService.cancelAppointment بكود (${codeToUse}) أو هاتف (${phoneToUse})`);
+            const cancelRes = await appointmentService.cancelAppointment({
+                bookingId: codeToUse,
+                phone: phoneToUse
+            });
+
+            if (cancelRes.success) {
+                const card = {
+                    type: 'booking_cancelled',
+                    bookingId: cancelRes.bookingId,
+                    doctor: cancelRes.doctor,
+                    date: cancelRes.date,
+                    time: cancelRes.time,
+                    patientName: cancelRes.patientName
+                };
+                return {
+                    reply: `${cancelRes.message}\n\nلو حبيت تحجز ميعاد تاني في أي وقت يشرفنا خدمتك دائماً. 🌸`,
+                    reasoningSteps,
+                    state,
+                    card
+                };
+            } else {
+                return {
+                    reply: cancelRes.message,
+                    reasoningSteps,
+                    state
+                };
+            }
+        }
+
+        // Neither code nor phone provided yet:
+        state.awaitingCancellationCodeOrPhone = true;
+        reasoningSteps.push('طلب كود الحجز أو رقم الهاتف لإتمام عملية الإلغاء');
+        const isEng = detectLanguage(rawText) === 'en';
+        return {
+            reply: isEng
+                ? 'Certainly. To cancel your appointment, could you please provide your 5-digit booking code (e.g. 24568) or the mobile phone number used during booking?'
+                : 'حاضر من عينينا يا فندم. عشان نقدر نلغي الحجز، ممكن كود الحجز المكون من 5 أرقام (زي 24568) أو رقم الموبايل اللي حجزت بيه؟',
+            reasoningSteps,
+            state
+        };
+    }
 
     // -------------------------------------------------------------
     // 0. DYNAMIC DATE CONTEXT INJECTION (Strict Rule 1)
@@ -1608,15 +1850,35 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
     if (state.awaitingName) {
         const cleanNoPunct = normalizedText.replace(/[؟?.,!]/g, '').trim();
 
-        // Intercept polite greetings while awaiting name (Module 2)
-        const greetingPhrases = [
-            'الحمد لله', 'الحمدلله', 'اخبارك ايه', 'أخبارك إيه', 'اخبارك', 'أخبارك',
-            'ازيك', 'إزيك', 'تمام', 'عامل ايه', 'عامله ايه', 'كويس', 'كويسة', 'بخير', 'فل', 'ورد',
-            'مساء الخير', 'صباح الخير', 'اهلا', 'أهلا', 'أهلاً', 'مرحبا', 'مرحباً', 'سلام عليكم', 'السلام عليكم', 'الو', 'ألو'
-        ];
-        const isGreetingOnly = greetingPhrases.some(p => cleanNoPunct === p || cleanNoPunct.startsWith(p));
-        if (isGreetingOnly) {
-            reasoningSteps.push('المريض أرسل تحية أثناء انتظار الاسم: الرد بلباقة وإعادة طلب الاسم دون اعتباره اسماً');
+        // 1. Polite greetings while awaiting name: respond appropriately to the exact greeting
+        if (/^(?:سلام\s*عليكم|السلام\s*عليكم|سلامو\s*عليكم)/i.test(cleanNoPunct)) {
+            reasoningSteps.push('المريض أرسل تحية السلام أثناء انتظار الاسم: رد السلام بلباقة وطلب الاسم');
+            const reply = `وعليكم السلام ورحمة الله وبركاته يا فندم! أهلاً بحضرتك في سمارت كلينك، نورتنا 🌸 يشرفني أعرف اسم حضرتك الكريم عشان أقدر أساعدك؟`;
+            return { reply, reasoningSteps, state };
+        }
+        if (/^(?:صباح\s*الخير|صباح\s*الورد|صباح\s*الفل|صباح\s*النور)/i.test(cleanNoPunct)) {
+            reasoningSteps.push('المريض أرسل تحية صباحية أثناء انتظار الاسم');
+            const reply = `صباح الورد والياسمين يا فندم! يومك سعيد يا رب 🌸 يشرفني أعرف اسم حضرتك الكريم؟`;
+            return { reply, reasoningSteps, state };
+        }
+        if (/^(?:مساء\s*الخير|مساء\s*الورد|مساء\s*النور)/i.test(cleanNoPunct)) {
+            reasoningSteps.push('المريض أرسل تحية مسائية أثناء انتظار الاسم');
+            const reply = `مساء النور والسرور يا فندم! نورت عيادتنا سمارت كلينك 🌸 يشرفني أعرف اسم حضرتك الكريم؟`;
+            return { reply, reasoningSteps, state };
+        }
+        if (/^(?:اهلا|أهلا|أهلاً|مرحبا|مرحباً|هاي|ألو|الو)/i.test(cleanNoPunct)) {
+            reasoningSteps.push('المريض أرسل ترحيباً أثناء انتظار الاسم');
+            const reply = `أهلاً بحضرتك يا فندم! نورت عيادتنا سمارت كلينك 🌸 يشرفني أعرف اسم حضرتك الكريم عشان أقدر أساعدك؟`;
+            return { reply, reasoningSteps, state };
+        }
+        if (/^(?:hello|hi|hey|good\s*morning|good\s*afternoon|good\s*evening)/i.test(cleanNoPunct)) {
+            reasoningSteps.push('English greeting during name wait');
+            state.language = 'en';
+            const reply = `Hello and welcome to Smart Clinic! 🌸 I am Nora, your medical receptionist. May I have your name to best assist you today?`;
+            return { reply, reasoningSteps, state };
+        }
+        if (/^(?:ازيك|إزيك|عامل\s*ايه|عامله\s*ايه|اخبارك|أخبارك|اخبارك\s*ايه|أخبارك\s*إيه|تمام|الحمد\s*لله|الحمدلله|كويس|كويسة|بخير)/i.test(cleanNoPunct)) {
+            reasoningSteps.push('المريض سأل عن الحال أثناء انتظار الاسم: الرد بلباقة وإعادة طلب الاسم');
             const reply = `الحمد لله تمام وبخير يا فندم! يشرفني معرفة اسم حضرتك الكريم؟`;
             return { reply, reasoningSteps, state };
         }
@@ -1638,9 +1900,35 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
         if (hasBookingOrIntent) {
             delete state.awaitingName;
         } else if (words.length >= 1 && words.length <= 4 && isNotPhone && !containsBlacklistedNameWord(cleanNoPunct)) {
-            const extractedName = words.join(' ');
-            state.userName = extractedName;
+            const cleanRaw = rawText.replace(/[؟?.,!]/g, '').trim();
+            const cleanRawWords = cleanRaw.split(/\s+/).filter(Boolean);
+            const extractedName = (cleanRawWords.length === words.length && !/\d/.test(cleanRaw)) ? cleanRaw : words.join(' ');
+            
+            // Strict Triple-Name Enforcement for appointment bookings & waitlist
+            if (!isTripleName(extractedName) && (state.pendingBooking || state.awaitingWaitlist || state.multiDoctorContext)) {
+                state.userName = extractedName;
+                state.gender = detectGender({
+                    text: normalizedText,
+                    name: extractedName,
+                    currentGender: state.gender || state.userGender
+                });
+                state.userGender = state.gender;
+                gp = getGenderedPhrases(state.gender);
+                const honorific = gp.formatHonorific(extractedName);
+                state.awaitingName = true;
+                const isEng = detectLanguage(rawText) === 'en';
+                const reply = isEng
+                    ? `Welcome ${extractedName}! May I please have your full triple name (First, Middle, and Family name) so we can register your appointment in the clinic system? 🌸`
+                    : `أهلاً بك يا ${honorific}! يشرفني بس أعرف اسم حضرتك الثلاثي الكريم (الاسم واسم الوالد واللقب) عشان نقدر نسجل الحجز في ملف العيادة 🌸`;
+                return {
+                    reply,
+                    reasoningSteps: ['إلزامية الاسم الثلاثي: المريض أدخل اسماً مفرداً أو ثنائياً، طلب الاسم الثلاثي بالكامل قبل اعتماد الحجز'],
+                    state
+                };
+            }
+
             state.patientName = extractedName;
+            state.userName = extractFirstName(extractedName) || extractedName;
             delete state.awaitingName;
 
             state.gender = detectGender({
@@ -1725,12 +2013,9 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
                 return { reply, reasoningSteps, state };
             }
 
-            // Standard transition requested:
+            // Standard transition in Arabic:
             if (state.gender === 'unisex' || !state.gender) {
                 // For unisex names (e.g., "نور", "إسلام", "رضا", "عصمت", "جهاد"):
-                // DO NOT default to male or female immediately.
-                // Use gender-neutral polite honorifics in the initial response:
-                // "أهلاً بك يا فندم! نورت عيادتنا، إزاي أقدر أساعدك؟"
                 const reply = `أهلاً بك يا فندم! نورت عيادتنا، إزاي أقدر أساعدك؟`;
                 return { reply, reasoningSteps, state };
             }
@@ -1757,8 +2042,8 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
     if (!state.patientName || isNameCorrection) {
         const extractedName = extractNameFromMessage(rawText, Boolean(state.awaitingName)) || extractNameFromMessage(normalizedText, Boolean(state.awaitingName));
         if (extractedName) {
-            state.userName = extractedName;
             state.patientName = extractedName;
+            state.userName = extractFirstName(extractedName) || extractedName;
             delete state.awaitingName;
             if (isFeminineName(extractedName)) {
                 state.gender = 'female';
@@ -2605,10 +2890,10 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
             } else if (state.multiDoctorContext && state.multiDoctorContext.bookedAppointments && state.multiDoctorContext.bookedAppointments.length > 1) {
                 additionalPrompt = `كده تم تأكيد جميع كشوفات حضرتك المطلوبة بنجاح! تحب${gp.isFemale ? 'ي' : ''} نضيف أي كشف إضافي، ولا نكتفي بالحجوزات دي؟`;
             } else {
-                additionalPrompt = `تحب${gp.isFemale ? 'ي' : ''} نحجز لحضرتك كشف تاني مع أي دكتور أو تخصص تاني، ولا نكتفي بالحجز ده؟`;
+                additionalPrompt = `هل تحب${gp.isFemale ? 'ي' : ''} حضرتك تضيف${gp.isFemale ? 'ي' : ''} حجز تاني أو تكشف${gp.isFemale ? 'ي' : ''} لحد تاني معاه، ولا كده تمام ونعتمد الحجز؟`;
             }
 
-            const reply = `تم تأكيد حجز حضرتك يا ${honorific} بنجاح! ميعادك ${state.pendingBooking.date} الساعة ${state.pendingBooking.time} مع ${state.pendingBooking.doctor}. هنبعت لحضرتك رسالة تأكيد على الواتساب على رقم ${state.patientPhone}. ألف سلامة على حضرتك و${gp.tanawwar} في العيادة! 🌸\n\n${additionalPrompt}`;
+            const reply = `تم تأكيد حجز حضرتك يا ${honorific} بنجاح! ميعادك ${state.pendingBooking.date} الساعة ${state.pendingBooking.time} مع ${state.pendingBooking.doctor} (كود الحجز: ${bookingResult.bookingId}). هنبعت لحضرتك رسالة تأكيد على الواتساب على رقم ${state.patientPhone}. ${bookingResult.isToday ? 'تأكيد فوري ومباشر في العيادة! ⚡' : 'وهنبعت لحضرتك تذكير تلقائي عبر الواتساب قبل الموعد بـ 24 ساعة. 📱'} ألف سلامة على حضرتك و${gp.tanawwar} في العيادة! 🌸\n\n${additionalPrompt}`;
 
             state.postBookingFlow = {
                 step: 'AWAITING_ADDITIONAL_DECISION',
@@ -2621,6 +2906,10 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
             delete state.waitlistSlot;
             delete state.awaitingWaitlist;
             delete state.awaitingPhone;
+            delete state.takeoverRequested;
+            delete state.humanTakeover;
+            delete state.takeoverRequestedBy;
+            state.status = 'active';
 
             return {
                 reply,
@@ -2641,12 +2930,14 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
 
         if (!state.patientName && state.patientPhone) {
             return {
-                reply: `تمام يا فندم، يشرفني بس أعرف اسم حضرتك الكريم عشان نأكد الحجز؟`,
-                reasoningSteps: ['تم حفظ رقم الواتساب، طلب اسم المريض فقط'],
+                reply: `تمام يا فندم، يشرفني بس أعرف اسم حضرتك الثلاثي الكريم عشان نأكد الحجز؟`,
+                reasoningSteps: ['تم حفظ رقم الواتساب، طلب اسم المريض الثلاثي فقط'],
                 state
             };
         }
     }
+
+    const extractedDoc = extractDoctorAndSpecialty(normalizedText, state);
 
     // -------------------------------------------------------------
     // 5. WAITLIST INTENT ROUTING (WAITLIST_ENGINE State)
@@ -2655,7 +2946,7 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
 
     if (state.awaitingWaitlist || isWaitlist) {
         if (isWaitlist || (state.awaitingWaitlist && phoneAnalysis.isValid)) {
-            const docName = state.waitlistSlot?.doctor || state.bookingDraft?.doctor;
+            const docName = state.waitlistSlot?.doctor || state.bookingDraft?.doctor || (extractedDoc && extractedDoc.doctor);
             if (!docName) {
                 return {
                     reply: UNIVERSAL_GENERIC_BOOKING_REPLY,
@@ -2745,8 +3036,8 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
             const displayName = state.userName || state.patientName;
             const userTitle = displayName ? (gp.isFemale ? `أستاذة ${displayName}` : `أستاذ ${displayName}`) : 'فندم';
 
-            reasoningSteps.push(`طلب رقم الواتساب لتسجيل المريض في قائمة الانتظار لدكتور ${docName} دون إعادة عرض المواعيد`);
-            const reply = `حاضر من عينيا يا ${userTitle}، ممكن بس رقم الواتساب الخاص بحضرتك عشان نسجلك في قائمة الانتظار الخاصة بدكتور ${docName}، وأول ما يفضى ميعاد نتواصل معاك فوراً؟`;
+            reasoningSteps.push(`طلب رقم الواتساب واسم المريض لتسجيله في قائمة الانتظار لدكتور ${docName} دون إعادة عرض المواعيد`);
+            const reply = `حاضر من عينيا يا ${userTitle}، ممكن بس رقم الواتساب واسم حضرتك الكريم عشان نسجلك في قائمة الانتظار الخاصة بدكتور ${docName}، وأول ما يفضى ميعاد نتواصل معاك فوراً؟ 🌸`;
 
             return {
                 reply,
@@ -2769,8 +3060,28 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
 • كشف الباطنة والقلب مع د. حسام فتحي: 500 جنيه
 • كشف العيون مع د. مريم نبيل: 400 جنيه`;
 
+        if (!state.bookingDraft) state.bookingDraft = {};
+        if (extractedDoc && extractedDoc.doctor) {
+            state.bookingDraft.doctor = extractedDoc.doctor;
+            state.bookingDraft.doctor_id = extractedDoc.doctorId || state.doctor_id;
+            state.doctor_id = extractedDoc.doctorId || state.doctor_id;
+        }
+        const effDate = resolveDateFromText(normalizedText, currentDate);
+        if (effDate) {
+            state.bookingDraft.date = effDate.label;
+            state.bookingDraft.dateStr = effDate.dateStr;
+        }
+        const timeMatch = normalizedText.match(/(?:الساعة|الساعه|ساعة|ميعاد)?\s*(\d{1,2}(?::\d{2})?\s*(?:مساءً|صباحاً|عصراً|م|ص))/i);
+        if (timeMatch) {
+            state.bookingDraft.time = timeMatch[1].trim();
+        } else if (normalizedText.includes('4:30')) {
+            state.bookingDraft.time = '4:30 مساءً';
+        }
+
         if (state.bookingDraft && state.bookingDraft.date && state.bookingDraft.time) {
-            priceReply += `\n\nتحب${gp.isFemale ? 'ي' : ''} نكمل حجز ميعاد حضرتك ${state.bookingDraft.date} الساعة ${state.bookingDraft.time}؟`;
+            priceReply += `\n\nوعشان نأكد ميعاد حضرتك ${state.bookingDraft.doctor ? `مع ${state.bookingDraft.doctor}` : ''} ${state.bookingDraft.date} الساعة ${state.bookingDraft.time}، يشرفني أعرف اسم حضرتك ورقم الواتساب؟`;
+            state.awaitingPhone = true;
+            state.awaitingName = true;
         } else if (state.bookingDraft && state.bookingDraft.date) {
             priceReply += `\n\nتحب${gp.isFemale ? 'ي' : ''} نكمل حجز ميعاد حضرتك ${state.bookingDraft.date}؟`;
         } else {
@@ -2823,7 +3134,7 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
         };
     }
 
-    const extractedDoc = extractDoctorAndSpecialty(normalizedText, state);
+    // (extractedDoc already extracted above before Waitlist & Price routers)
 
     // Multi-Branch Handling & Switching (Module 6)
     const isAlexBranch = lowerText.includes('إسكندرية') || lowerText.includes('اسكندرية') || lowerText.includes('إسكندريه') || lowerText.includes('اسكندريه');
@@ -2945,7 +3256,7 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
             if (state.patientPhone) {
                 state.awaitingName = true;
                 return {
-                    reply: `تمام جداً، تم اختيار وتثبيت ميعاد الساعة ${confirmedTime} يا فندم! يشرفني بس أعرف اسم حضرتك الكريم عشان نأكد الحجز؟`,
+                    reply: `تمام جداً، تم اختيار وتثبيت ميعاد الساعة ${confirmedTime} يا فندم! يشرفني بس أعرف اسم حضرتك الثلاثي الكريم عشان نأكد الحجز؟`,
                     reasoningSteps,
                     state
                 };
@@ -2953,7 +3264,7 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
             state.awaitingName = true;
             state.awaitingPhone = true;
             return {
-                reply: `تمام جداً، تم اختيار وتثبيت ميعاد الساعة ${confirmedTime} يا فندم! يشرفني بس أعرف اسم حضرتك الكريم ورقم الواتساب عشان نأكد الحجز؟`,
+                reply: `تمام جداً، تم اختيار وتثبيت ميعاد الساعة ${confirmedTime} يا فندم! يشرفني بس أعرف اسم حضرتك الثلاثي الكريم ورقم الواتساب عشان نأكد الحجز؟`,
                 reasoningSteps,
                 state
             };
@@ -3181,6 +3492,7 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
     const hasBookingIntent = lower.includes('احجز') || lower.includes('حجز') || lower.includes('كشف') || 
                              lower.includes('عايز') || lower.includes('عاوز') || lower.includes('محتاج') ||
                              lower.includes('حول') || lower.includes('هحول') || lower.includes('غيرت') ||
+                             lower.includes('book') || lower.includes('appointment') || lower.includes('schedule') ||
                              Boolean(extractedDoc?.doctor || extractedDoc?.specialty) ||
                              Boolean(isDoctorOrSpecialtySwitch) ||
                              Boolean(effectiveDate) || Boolean(extractedTime) || Boolean(isAvailabilityAsk) || 
@@ -3189,35 +3501,42 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
                              Boolean(isDoctorSelectionAwaited(state) && extractDoctorFromNumberOrOrdinal(rawText, state));
 
     if (!hasBookingIntent) {
-        if (lower.includes('سلام عليكم') || lower.includes('السلام عليكم')) {
-            let reply = `وعليكم السلام ورحمة الله وبركاته يا فندم! ${gp.nawwart} عيادتنا.`;
-            if (!state.patientName) {
-                reply += ' يشرفني أعرف اسم حضرتك الكريم الأول عشان أقدر أساعدك؟';
-                state.awaitingName = true;
+        if (lower.includes('hello') || lower.includes('hi') || lower.includes('hey') || lower.includes('good morning') || lower.includes('good afternoon') || lower.includes('good evening')) {
+            let reply = 'Hello and welcome to Smart Clinic! 🌸';
+            if (state.patientName) {
+                reply += ` Hello ${state.userName || state.patientName}, how can I help you today?`;
             } else {
+                reply += ' How may I assist you today? Feel free to ask about our doctors, clinic schedules, or services.';
+            }
+            return { reply, reasoningSteps: ['Greeting in English'], state };
+        }
+
+        if (lower.includes('سلام عليكم') || lower.includes('السلام عليكم')) {
+            let reply = `وعليكم السلام ورحمة الله وبركاته يا فندم! ${gp.nawwart} عيادتنا 🌸`;
+            if (state.patientName) {
                 reply += ` ${gp.ahlanBek} يا ${honorific}، إزاي أقدر أساعدك النهاردة؟`;
+            } else {
+                reply += ` إزاي أقدر أساعدك النهاردة؟ تحب تستفسر عن مواعيد كشف أو تحجز عند أي دكتور؟`;
             }
             return { reply, reasoningSteps: ['الرد على التحية وفق البروتوكول المصري'], state };
         }
 
         if (lower.includes('صباح الخير') || lower.includes('صباح الورد') || lower.includes('صباح الفل')) {
-            let reply = 'صباح الورد والياسمين يا فندم! يومك سعيد يا رب.';
-            if (!state.patientName) {
-                reply += ' يشرفني أعرف اسم حضرتك الكريم الأول عشان أقدر أساعدك؟';
-                state.awaitingName = true;
-            } else {
+            let reply = 'صباح الورد والياسمين يا فندم! يومك سعيد يا رب 🌸';
+            if (state.patientName) {
                 reply += ` ${gp.ahlanBek} يا ${honorific}، إزاي أقدر أساعدك؟`;
+            } else {
+                reply += ` إزاي أقدر أساعدك النهاردة في العيادة؟ تحب تستفسر عن الأطباء أو المواعيد المتاحة؟`;
             }
             return { reply, reasoningSteps: ['الرد على التحية الصباحية'], state };
         }
 
         if (lower.includes('مساء الخير') || lower.includes('مساء الورد') || lower.includes('مساء النور')) {
-            let reply = 'مساء النور والسرور يا فندم! نورتنا والله.';
-            if (!state.patientName) {
-                reply += ' يشرفني أعرف اسم حضرتك الكريم الأول عشان أقدر أساعدك؟';
-                state.awaitingName = true;
-            } else {
+            let reply = 'مساء النور والسرور يا فندم! نورتنا والله 🌸';
+            if (state.patientName) {
                 reply += ` ${gp.ahlanBek} يا ${honorific}، إزاي أقدر أساعدك؟`;
+            } else {
+                reply += ` إزاي أقدر أساعدك النهاردة في العيادة؟ تحب تستفسر عن الأطباء أو المواعيد المتاحة؟`;
             }
             return { reply, reasoningSteps: ['الرد على التحية المسائية'], state };
         }
@@ -3278,14 +3597,43 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
         }
 
         // General fallback inquiry
-        let fallbackReply = `تحت أمرك يا ${honorific || 'فندم'}، أقدر أساعدك في معرفة المواعيد المتاحة أو حجز موعد كشف مع أي من أطباء العيادة.`;
         if (!state.patientName) {
-            fallbackReply = `تحت أمرك يا فندم، يشرفني أعرف اسم حضرتك الكريم الأول عشان أقدر أساعدك بشكل أفضل؟`;
-            state.awaitingName = true;
+            const fallbackName = extractNameFromMessage(rawText, true) || extractNameFromMessage(normalizedText, true);
+            if (fallbackName) {
+                state.userName = extractFirstName(fallbackName) || fallbackName;
+                state.patientName = fallbackName;
+                delete state.awaitingName;
+                state.gender = detectGender({
+                    text: rawText,
+                    name: fallbackName,
+                    currentGender: state.gender || state.userGender
+                });
+                state.userGender = state.gender;
+                gp = getGenderedPhrases(state.gender);
+                const localHonorific = gp.formatHonorific(fallbackName);
+                if (state.gender === 'unisex' || !state.gender) {
+                    return {
+                        reply: `أهلاً بك يا فندم! نورت عيادتنا، إزاي أقدر أساعدك؟`,
+                        reasoningSteps: ['التقاط اسم المريض والترحيب المحايد'],
+                        state
+                    };
+                }
+                const nameSalutation = gp.isFemale ? `${gp.ahlanBek} ${localHonorific}` : `${gp.ahlanBek} يا ${localHonorific}`;
+                return {
+                    reply: `${nameSalutation}، ${gp.nawwart} عيادتنا! إزاي أقدر أساعدك النهاردة؟ ${gp.habeb} ${gp.tostafser} عن مواعيد كشف معينة؟`,
+                    reasoningSteps: ['التقاط اسم المريض وتخصيص التحية بالاسم دون تكرار السؤال عنه'],
+                    state
+                };
+            }
+            return {
+                reply: `تحت أمرك يا فندم! إزاي أقدر أساعدك النهاردة؟ تحب تستفسر عن تخصص معين، مواعيد الأطباء، أو تحجز موعد كشف؟ 🌸`,
+                reasoningSteps: ['معالجة الاستفسار العام وعرض المساعدة'],
+                state
+            };
         }
 
         return {
-            reply: fallbackReply,
+            reply: `تحت أمرك يا ${honorific || 'فندم'}، أقدر أساعدك في معرفة المواعيد المتاحة أو حجز موعد كشف مع أي من أطباء العيادة.`,
             reasoningSteps: ['معالجة الاستفسار العام غير المرتبط بحجز مباشر'],
             state
         };
@@ -3536,16 +3884,22 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
 
             // Check if patient info is complete
             if (state.patientName && state.patientPhone) {
-                const userExplicitlyWantsToBookNow = /(?:احجزلي|احجز لي|أكد الحجز|اكد الحجز|ثبت الحجز|سجل الحجز)/.test(normalizedText);
-                if (!userExplicitlyWantsToBookNow) {
-                    state.awaitingBookingConfirmation = true;
-                    return {
-                        reply: `ميعاد الساعة ${confirmedSlotTime} (${activeDateLabel}) متاح مع ${activeDoctor}! تحب${gp.isFemale ? 'ي' : ''} نأكد حجز حضرتك بنفس البيانات المسجلة باسم ${honorific} ورقم الواتساب (${state.patientPhone})؟`,
-                        reasoningSteps,
-                        state
-                    };
+                const wasAwaitingDetails = state.awaitingPhone || state.awaitingName || state.awaitingBookingConfirmation;
+                const hasBookingIntent = /(?:احجز|احجزي|احجزلي|احجزيلي|احجزلى|أكد|اكد|ثبت|سجل|تمام|اسمي|ورقمي|رقمي)/i.test(normalizedText);
+
+                if (wasAwaitingDetails || hasBookingIntent) {
+                    delete state.awaitingPhone;
+                    delete state.awaitingName;
+                    delete state.awaitingBookingConfirmation;
+                    return processChatMessage({ message: '', sessionId, sessionData: state, currentDate });
                 }
-                return processChatMessage({ message: '', sessionId, sessionData: state, currentDate });
+
+                state.awaitingBookingConfirmation = true;
+                return {
+                    reply: `ميعاد الساعة ${confirmedSlotTime} (${activeDateLabel}) متاح مع ${activeDoctor}! تحب${gp.isFemale ? 'ي' : ''} نأكد حجز حضرتك بنفس البيانات المسجلة باسم ${honorific} ورقم الواتساب (${state.patientPhone})؟`,
+                    reasoningSteps,
+                    state
+                };
             }
 
             if (state.patientName && !state.patientPhone) {
@@ -3560,7 +3914,7 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
             if (!state.patientName && state.patientPhone) {
                 state.awaitingName = true;
                 return {
-                    reply: `تمام جداً، تم اختيار وتثبيت ميعاد الساعة ${confirmedSlotTime} (${activeDateLabel}) يا فندم! يشرفني بس أعرف اسم حضرتك الكريم عشان نأكد الحجز؟`,
+                    reply: `تمام جداً، تم اختيار وتثبيت ميعاد الساعة ${confirmedSlotTime} (${activeDateLabel}) يا فندم! يشرفني بس أعرف اسم حضرتك الثلاثي الكريم عشان نأكد الحجز؟`,
                     reasoningSteps,
                     state
                 };
@@ -3569,7 +3923,7 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
             state.awaitingName = true;
             state.awaitingPhone = true;
             return {
-                reply: `تمام جداً، تم اختيار وتثبيت ميعاد الساعة ${confirmedSlotTime} (${activeDateLabel}) يا فندم! يشرفني بس أعرف اسم حضرتك الكريم ورقم الواتساب عشان نأكد الحجز فوراً؟`,
+                reply: `تمام جداً، تم اختيار وتثبيت ميعاد الساعة ${confirmedSlotTime} (${activeDateLabel}) يا فندم! يشرفني بس أعرف اسم حضرتك الثلاثي الكريم ورقم الواتساب عشان نأكد الحجز فوراً؟`,
                 reasoningSteps,
                 state
             };
@@ -3670,11 +4024,10 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
     }
 
     // General fallback
-    let fallbackReply = `تحت أمرك يا ${honorific || 'فندم'}، أقدر أساعدك في معرفة المواعيد المتاحة أو حجز موعد كشف مع أي من أطباء العيادة.`;
-    if (!state.patientName) {
-        fallbackReply = `تحت أمرك يا فندم، يشرفني أعرف اسم حضرتك الكريم الأول عشان أقدر أساعدك بشكل أفضل؟`;
-        state.awaitingName = true;
-    }
+    const isEng = (state.language === 'en') || detectLanguage(rawText) === 'en';
+    const fallbackReply = isEng
+        ? `At your service! I can assist you with checking doctor schedules, booking an appointment, or learning about our clinic services.`
+        : `تحت أمرك يا ${honorific || 'فندم'}، أقدر أساعدك في معرفة المواعيد المتاحة أو حجز موعد كشف مع أي من أطباء العيادة.`;
 
     return {
         reply: fallbackReply,
@@ -3683,15 +4036,117 @@ async function processChatMessage({ message, sessionId, sessionData = {}, curren
     };
 }
 
+/**
+ * Load Gold Standard Memory Bank for Dynamic Few-Shot Injection
+ */
+function loadMemoryBank() {
+    try {
+        const p = path.join(__dirname, '../data/memory_bank.json');
+        if (fs.existsSync(p)) {
+            return JSON.parse(fs.readFileSync(p, 'utf8'));
+        }
+    } catch (e) {
+        console.warn('Could not load memory_bank.json:', e.message);
+    }
+    return [];
+}
+
+/**
+ * Dynamically select top K most relevant gold standard examples based on user query
+ */
+function selectTopGoldStandards(userMessage, topK = 3) {
+    const bank = loadMemoryBank();
+    if (!bank || bank.length === 0) return [];
+    if (!userMessage || typeof userMessage !== 'string') return bank.slice(0, topK);
+
+    const queryTokens = userMessage.toLowerCase().split(/\s+/).filter(t => t.length > 1);
+
+    const scored = bank.map(item => {
+        let score = 0;
+        const targetText = `${item.scenario} ${item.user_input} ${item.expected_action} ${(item.ideal_response_keywords || []).join(' ')}`.toLowerCase();
+
+        for (const token of queryTokens) {
+            if (targetText.includes(token)) {
+                score += 2;
+            }
+        }
+
+        // Specific intent boosts
+        if (/(طوارئ|ألم|نزيف|صدر|تنفس|مغمى|حادث)/.test(userMessage) && item.expected_action.includes('emergency')) {
+            score += 20;
+        }
+        if (/(غيرت|بدل|بدلاً|مش عايز|تاني)/.test(userMessage) && item.expected_action.includes('switch')) {
+            score += 15;
+        }
+        if (/(سكرتارية|ادارة|إدارة|بشري|إنسان|عملاء)/.test(userMessage) && item.expected_action.includes('human')) {
+            score += 20;
+        }
+        if (/(انتظار|قائمة|محجوز|فاضي)/.test(userMessage) && item.expected_action.includes('waitlist')) {
+            score += 15;
+        }
+        if (/(بكام|سعر|تكلفة|أسعار)/.test(userMessage) && item.expected_action.includes('pricing')) {
+            score += 12;
+        }
+        if (/(اسم|رقم|موبايل|010|011|012|015)/.test(userMessage) && item.expected_action.includes('entities')) {
+            score += 10;
+        }
+
+        return { ...item, score };
+    });
+
+    scored.sort((a, b) => b.score - a.score);
+    return scored.slice(0, topK);
+}
+
+/**
+ * Main Entry Point: Wraps the deterministic clinic reasoning with Dynamic Few-Shot Injection and optional LLM linguistic reformulation
+ */
+async function processChatMessage(params) {
+    const res = await internalProcessChatMessage(params);
+    if (!res || !res.reply) return res;
+
+    // Phase 2: Dynamic Few-Shot Injection from Gold Standard Memory Bank
+    const rawMsg = params.message || '';
+    const topFewShots = selectTopGoldStandards(rawMsg, 3);
+    res.fewShotExamples = topFewShots;
+
+    // If Gemini or OpenAI is configured, pass response with injected few-shots for natural conversational formulation
+    if (geminiAgent && typeof geminiAgent.reformulateWithLLM === 'function' && geminiAgent.isLLMEnabled()) {
+        try {
+            const isEng = (res.state?.language === 'en') || detectLanguage(rawMsg) === 'en';
+            const reformulated = await geminiAgent.reformulateWithLLM({
+                userMessage: rawMsg,
+                draftReply: res.reply,
+                state: res.state || {},
+                language: isEng ? 'en' : 'ar',
+                fewShotExamples: topFewShots
+            });
+            if (reformulated && reformulated !== res.reply) {
+                res.reply = reformulated;
+                res.reasoningSteps = res.reasoningSteps || [];
+                res.reasoningSteps.push(`الصياغة اللغوية الذكية (${geminiAgent.getActiveProvider()}): تم حقن 3 أمثلة من بنك الذاكرة الذهبي`);
+            }
+        } catch (e) {
+            // Keep deterministic reply safely
+        }
+    }
+
+    return res;
+}
+
 module.exports = {
     SYSTEM_PROMPT,
     getSystemPrompt,
     processChatMessage,
+    loadMemoryBank,
+    selectTopGoldStandards,
     getHonorific,
     analyzePhoneNumber,
     extractNameFromMessage,
     normalizeTypoAndSlang,
     resolveDateFromText,
+    resolveSlotFromSelection,
+    extractTimeSlot,
     isAvailabilityInquiry,
     isWaitlistIntent,
     isAskingWhatDayTodayIs,

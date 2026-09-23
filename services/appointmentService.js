@@ -1,4 +1,5 @@
 const path = require('path');
+const fs = require('fs');
 if (typeof __dirname !== 'undefined') {
     try {
         require('dotenv').config({ path: path.join(__dirname, '../.env') });
@@ -20,6 +21,49 @@ try {
 }
 
 const { encrypt, decrypt } = require('../utils/encryption');
+
+// Persistent JSON Storage in data/
+const DATA_DIR = path.join(__dirname, '../data');
+if (!fs.existsSync(DATA_DIR)) {
+    try {
+        fs.mkdirSync(DATA_DIR, { recursive: true });
+    } catch (e) {
+        console.warn('Could not create data directory:', e.message);
+    }
+}
+
+const APPOINTMENTS_FILE = path.join(DATA_DIR, 'appointments.json');
+const WAITLIST_FILE = path.join(DATA_DIR, 'waitlist.json');
+const BLACKLIST_FILE = path.join(DATA_DIR, 'blacklist.json');
+const CHATS_FILE = path.join(DATA_DIR, 'chats.json');
+
+function loadJSON(filePath, fallback) {
+    try {
+        if (fs.existsSync(filePath)) {
+            const raw = fs.readFileSync(filePath, 'utf8');
+            return JSON.parse(raw);
+        }
+    } catch (e) {
+        console.warn(`Error reading ${filePath}:`, e.message);
+    }
+    return fallback;
+}
+
+function saveJSON(filePath, data) {
+    try {
+        fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
+    } catch (e) {
+        console.warn(`Error writing ${filePath}:`, e.message);
+    }
+}
+
+/**
+ * Generate human-friendly numeric booking reference code (5 digits, e.g. 24568)
+ */
+function generateBookingId() {
+    const num = Math.floor(10000 + Math.random() * 90000);
+    return num.toString();
+}
 
 // Doctors directory
 // Multi-Branch Clinic Configurations
@@ -133,31 +177,139 @@ const DOCTORS = Object.values(DOCTORS_SCHEDULE).map(d => ({
     schedule: `${d.workingDaysAr} من ${d.hoursAr}`
 }));
 
-// In-memory fallback stores with field-level encryption when MongoDB is offline
+// Persistent stores with field-level encryption syncing with data/
 let memoryAppointments = null;
 
 function getMemoryAppointments() {
     if (!memoryAppointments) {
-        memoryAppointments = [
-            // Pre-booked slot for Monday 4:30 PM to demonstrate Scenario B (Slot Booked)
-            {
-                id: 'apt_demo_booked_1',
-                doctor: 'د. أحمد شريف',
-                dateStr: 'Monday',
-                timeStr: '4:30 PM',
-                normalizedDate: 'monday',
-                normalizedTime: '16:30',
-                patientNameEnc: encrypt('محمود حسن'),
-                phoneEnc: encrypt('01011223344'),
-                status: 'scheduled',
-                reason: 'كشف أسنان دوري'
-            }
-        ];
+        const stored = loadJSON(APPOINTMENTS_FILE, null);
+        if (stored && Array.isArray(stored) && stored.length > 0) {
+            memoryAppointments = stored;
+        } else {
+            memoryAppointments = [
+                // Pre-booked slot for Monday 4:30 PM to demonstrate Scenario B (Slot Booked)
+                {
+                    id: 'apt_demo_booked_1',
+                    bookingId: 'SC-10001',
+                    doctor: 'د. أحمد شريف',
+                    dateStr: 'Monday',
+                    timeStr: '4:30 PM',
+                    normalizedDate: 'monday',
+                    normalizedTime: '16:30',
+                    patientNameEnc: encrypt('محمود حسن'),
+                    phoneEnc: encrypt('01011223344'),
+                    status: 'scheduled',
+                    reason: 'كشف أسنان دوري',
+                    createdAt: new Date('2026-09-20T10:00:00Z'),
+                    reminderNotice: 'سيتم إرسال تذكير تلقائي عبر الواتساب قبل الموعد بـ 24 ساعة'
+                }
+            ];
+            saveJSON(APPOINTMENTS_FILE, memoryAppointments);
+        }
     }
     return memoryAppointments;
 }
 
-const memoryWaitlist = [];
+function persistAppointments() {
+    if (memoryAppointments) {
+        saveJSON(APPOINTMENTS_FILE, memoryAppointments);
+    }
+}
+
+let memoryWaitlist = null;
+
+function getMemoryWaitlist() {
+    if (!memoryWaitlist) {
+        const stored = loadJSON(WAITLIST_FILE, null);
+        if (stored && Array.isArray(stored)) {
+            memoryWaitlist = stored;
+        } else {
+            memoryWaitlist = [];
+            saveJSON(WAITLIST_FILE, memoryWaitlist);
+        }
+    }
+    return memoryWaitlist;
+}
+
+function persistWaitlist() {
+    if (memoryWaitlist) {
+        saveJSON(WAITLIST_FILE, memoryWaitlist);
+    }
+}
+
+function resetDataStores() {
+    memoryAppointments = [
+        {
+            id: 'apt_demo_booked_1',
+            bookingId: 'SC-10001',
+            doctor: 'د. أحمد شريف',
+            dateStr: 'Monday',
+            timeStr: '4:30 PM',
+            normalizedDate: 'monday',
+            normalizedTime: '16:30',
+            patientNameEnc: encrypt('محمود حسن'),
+            phoneEnc: encrypt('01011223344'),
+            status: 'scheduled',
+            reason: 'كشف أسنان دوري',
+            createdAt: new Date('2026-09-20T10:00:00Z'),
+            reminderNotice: 'سيتم إرسال تذكير تلقائي عبر الواتساب قبل الموعد بـ 24 ساعة'
+        }
+    ];
+    persistAppointments();
+    memoryWaitlist = [];
+    persistWaitlist();
+}
+
+// Default blacklist words: Strictly abusive words, profanity, insults and harassment
+const DEFAULT_BLACKLIST_WORDS = [
+    'كلب', 'حمار', 'حيوان', 'غبي', 'غباء', 'زفت', 'قذر', 'حقير', 'تافه',
+    'واطي', 'سافل', 'وسخ', 'منحط', 'نصاب', 'حرامي', 'نصابين', 'حرامية',
+    'فاشل', 'فاشلين', 'زبالة', 'لعنة', 'يلعن', 'اللعنة', 'تبا', 'تباً',
+    'خرة', 'خرا', 'شحات', 'مجنون', 'متخلف', 'اهبل', 'أهبل', 'عبيط',
+    'ابن الكلب', 'ولاد الكلب', 'يا وسخ', 'يا فاشل', 'يا نصاب'
+];
+
+let dynamicBlacklist = null;
+
+function getBlacklist() {
+    if (!dynamicBlacklist) {
+        const stored = loadJSON(BLACKLIST_FILE, null);
+        if (stored && Array.isArray(stored)) {
+            dynamicBlacklist = new Set(stored);
+        } else {
+            dynamicBlacklist = new Set(DEFAULT_BLACKLIST_WORDS);
+            saveJSON(BLACKLIST_FILE, Array.from(dynamicBlacklist));
+        }
+    }
+    return Array.from(dynamicBlacklist);
+}
+
+function addBlacklistWord(word) {
+    if (!word || typeof word !== 'string') return getBlacklist();
+    getBlacklist();
+    dynamicBlacklist.add(word.trim().toLowerCase());
+    saveJSON(BLACKLIST_FILE, Array.from(dynamicBlacklist));
+    return Array.from(dynamicBlacklist);
+}
+
+function removeBlacklistWord(word) {
+    if (!word || typeof word !== 'string') return getBlacklist();
+    getBlacklist();
+    dynamicBlacklist.delete(word.trim().toLowerCase());
+    saveJSON(BLACKLIST_FILE, Array.from(dynamicBlacklist));
+    return Array.from(dynamicBlacklist);
+}
+
+function isWordBlacklisted(phrase) {
+    if (!phrase) return false;
+    getBlacklist();
+    const words = phrase.split(/\s+/);
+    return words.some(w => {
+        const raw = w.toLowerCase().replace(/[؟?.,!]/g, '');
+        const normalized = raw.replace(/[إأآٱ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي');
+        return dynamicBlacklist.has(raw) || dynamicBlacklist.has(normalized);
+    });
+}
 
 /**
  * Check if MongoDB connection is active
@@ -579,11 +731,16 @@ async function checkAvailability({ date, doctor, time, currentDate = new Date() 
         };
     }
 
-    // Check memory store for collisions
-    const collision = getMemoryAppointments().find(apt => 
-        (apt.normalizedDate === normDate && apt.normalizedTime === normTime) ||
-        (apt.dateStr && apt.dateStr.toLowerCase() === date?.toLowerCase() && apt.timeStr === time)
-    );
+    // Check memory/file store for collisions (excluding cancelled appointments)
+    const collision = getMemoryAppointments().find(apt => {
+        if (apt.status === 'cancelled') return false;
+        const isDocMatch = !apt.doctor || !doctorInfo.name ||
+                           apt.doctor.toLowerCase().includes(doctorInfo.name.toLowerCase()) ||
+                           doctorInfo.name.toLowerCase().includes(apt.doctor.toLowerCase());
+        if (!isDocMatch) return false;
+        return (apt.normalizedDate === normDate && apt.normalizedTime === normTime) ||
+               (apt.dateStr && date && apt.dateStr.toLowerCase() === date.toLowerCase() && apt.timeStr === time);
+    });
 
     if (collision) {
         return {
@@ -638,21 +795,45 @@ async function checkAvailability({ date, doctor, time, currentDate = new Date() 
 
 /**
  * Tool 2: book_appointment
- * Requires [date, time, phone_number].
- * Books the appointment and encrypts sensitive patient information.
+ * Requires [date, time, phone_number, doctor].
+ * Books the appointment, generates SC-XXXXX reference code, locks slot, and encrypts sensitive patient information.
  */
-async function bookAppointment({ date, time, phone_number, phone, patientName = 'المريض', doctor, reason = 'كشف عام' }) {
-    const contactPhone = phone_number || phone;
+async function bookAppointment({ date, time, phone_number, phone, patientPhone, patientName = 'المريض', doctor, reason = 'كشف عام', currentDate = new Date() }) {
+    const contactPhone = phone_number || phone || patientPhone;
     if (!date || !time || !contactPhone || !doctor) {
         throw new Error('book_appointment requires [date, time, phone_number, doctor]');
     }
 
-    const bookingId = 'APT-' + Math.random().toString(36).substring(2, 9).toUpperCase();
+    const bookingId = generateBookingId();
     const normDate = normalizeDate(date);
     const normTime = normalizeTime(time);
+    const isToday = isDateToday(date, currentDate);
+
+    // Strict Double-Booking Check across all active (non-cancelled) bookings
+    const activeAppointments = getMemoryAppointments().filter(apt => apt.status !== 'cancelled');
+    const isDoctorMatch = (d1, d2) => !d1 || !d2 || d1.toLowerCase().includes(d2.toLowerCase()) || d2.toLowerCase().includes(d1.toLowerCase());
+
+    const collision = activeAppointments.find(apt =>
+        isDoctorMatch(apt.doctor, doctor) &&
+        ((apt.normalizedDate === normDate && apt.normalizedTime === normTime) ||
+         (apt.dateStr && date && apt.dateStr.toLowerCase() === date.toLowerCase() && apt.timeStr === time))
+    );
+
+    if (collision) {
+        return {
+            success: false,
+            error: 'SLOT_COLLISION',
+            message: 'عفواً، هذا الموعد تم حجزه للتو لمريض آخر. يرجى اختيار موعد بديل منعاً للتعارض.'
+        };
+    }
+
+    const reminderNotice = isToday
+        ? 'تأكيد فوري: تم تأكيد ميعاد حضرتك اليوم مباشرة في العيادة'
+        : 'سيتم إرسال تذكير تلقائي عبر الواتساب قبل الموعد بـ 24 ساعة';
 
     const record = {
         id: bookingId,
+        bookingId,
         doctor: doctor,
         dateStr: date || 'أقرب موعد متاح',
         timeStr: time || '4:00 م',
@@ -662,13 +843,14 @@ async function bookAppointment({ date, time, phone_number, phone, patientName = 
         phoneEnc: encrypt(contactPhone),
         status: 'scheduled',
         reason,
-        createdAt: new Date()
+        createdAt: new Date(),
+        isToday,
+        reminderNotice
     };
 
     // If MongoDB is connected, also save to Mongoose models
     if (isMongoConnected()) {
         try {
-            // Find or create patient
             let patient = await Patient.findOne({ email: `${contactPhone.replace(/\D/g, '')}@clinic.local` });
             if (!patient) {
                 patient = new Patient({
@@ -695,8 +877,9 @@ async function bookAppointment({ date, time, phone_number, phone, patientName = 
         }
     }
 
-    // Always maintain in-memory record
+    // Save and sync with data/appointments.json
     getMemoryAppointments().push(record);
+    persistAppointments();
 
     return {
         success: true,
@@ -707,6 +890,9 @@ async function bookAppointment({ date, time, phone_number, phone, patientName = 
         date: date || 'الميعاد المختار',
         time: time || 'الوقت المختار',
         status: 'confirmed',
+        reminderNotice,
+        isToday,
+        confirmationType: isToday ? 'instant_same_day' : 'scheduled_advance',
         message: 'تم تأكيد حجز الموعد بنجاح'
     };
 }
@@ -752,7 +938,8 @@ async function addToWaitlist({ patientName, phone, doctor, requestedDate, reques
         }
     }
 
-    memoryWaitlist.push(record);
+    getMemoryWaitlist().push(record);
+    persistWaitlist();
 
     return {
         success: true,
@@ -768,18 +955,496 @@ async function addToWaitlist({ patientName, phone, doctor, requestedDate, reques
 }
 
 /**
+ * Cancel an appointment via booking reference code (SC-XXXXX) or registered phone
+ */
+async function cancelAppointment({ bookingId, phone }) {
+    if (!bookingId && !phone) {
+        return {
+            success: false,
+            message: 'يرجى تزويدنا بكود الحجز (مثل SC-XXXXX) أو رقم الموبايل المسجل به الحجز.'
+        };
+    }
+
+    const appointments = getMemoryAppointments();
+    let foundApt = null;
+
+    for (const apt of appointments) {
+        if (apt.status === 'cancelled') continue;
+
+        if (bookingId) {
+            const cleanTarget = bookingId.trim().toLowerCase().replace(/^sc-/, '');
+            const targetWithPrefix = 'sc-' + cleanTarget;
+            const aptId = (apt.id || '').toLowerCase();
+            const aptBookingId = (apt.bookingId || '').toLowerCase();
+            if (aptId === cleanTarget || aptBookingId === cleanTarget ||
+                aptId === targetWithPrefix || aptBookingId === targetWithPrefix ||
+                aptId.replace(/^sc-/, '') === cleanTarget || aptBookingId.replace(/^sc-/, '') === cleanTarget) {
+                foundApt = apt;
+                break;
+            }
+        }
+
+        if (phone && !foundApt) {
+            const cleanPhone = phone.trim().replace(/\D/g, '');
+            const decPhone = apt.phoneEnc ? decrypt(apt.phoneEnc).replace(/\D/g, '') : '';
+            if (decPhone === cleanPhone || (decPhone && decPhone.endsWith(cleanPhone))) {
+                foundApt = apt;
+                break;
+            }
+        }
+    }
+
+    if (!foundApt) {
+        return {
+            success: false,
+            message: 'عذراً، لم نتمكن من العثور على حجز مؤكد يطابق البيانات المدخلة. يرجى التأكد من كود الحجز أو رقم الهاتف.'
+        };
+    }
+
+    foundApt.status = 'cancelled';
+    foundApt.cancelledAt = new Date();
+    persistAppointments();
+
+    const patientName = foundApt.patientNameEnc ? decrypt(foundApt.patientNameEnc) : 'يا فندم';
+    const cleanId = foundApt.bookingId || foundApt.id;
+
+    return {
+        success: true,
+        bookingId: cleanId,
+        doctor: foundApt.doctor,
+        date: foundApt.dateStr,
+        time: foundApt.timeStr,
+        patientName,
+        message: `تم إلغاء حجز حضرتك بنجاح (كود الحجز: ${cleanId}) مع ${foundApt.doctor} يوم ${foundApt.dateStr} الساعة ${foundApt.timeStr}. نتمنى لحضرتك دوام الصحة والعافية.`
+    };
+}
+
+/**
+ * Reschedule an appointment to a new date and time
+ */
+async function rescheduleAppointment({ bookingId, phone, newDate, newTime, currentDate = new Date() }) {
+    if ((!bookingId && !phone) || !newDate || !newTime) {
+        return {
+            success: false,
+            message: 'يرجى تقديم كود الحجز أو رقم الهاتف بالإضافة إلى اليوم والوقت الجديدين لتعديل الميعاد.'
+        };
+    }
+
+    const appointments = getMemoryAppointments();
+    let foundApt = null;
+
+    for (const apt of appointments) {
+        if (apt.status === 'cancelled') continue;
+
+        if (bookingId) {
+            const cleanTarget = bookingId.trim().toLowerCase().replace(/^sc-/, '');
+            const targetWithPrefix = 'sc-' + cleanTarget;
+            const aptId = (apt.id || '').toLowerCase();
+            const aptBookingId = (apt.bookingId || '').toLowerCase();
+            if (aptId === cleanTarget || aptBookingId === cleanTarget ||
+                aptId === targetWithPrefix || aptBookingId === targetWithPrefix ||
+                aptId.replace(/^sc-/, '') === cleanTarget || aptBookingId.replace(/^sc-/, '') === cleanTarget) {
+                foundApt = apt;
+                break;
+            }
+        }
+
+        if (phone && !foundApt) {
+            const cleanPhone = phone.trim().replace(/\D/g, '');
+            const decPhone = apt.phoneEnc ? decrypt(apt.phoneEnc).replace(/\D/g, '') : '';
+            if (decPhone === cleanPhone || (decPhone && decPhone.endsWith(cleanPhone))) {
+                foundApt = apt;
+                break;
+            }
+        }
+    }
+
+    if (!foundApt) {
+        return {
+            success: false,
+            message: 'لم يتم العثور على حجز نشط لتعديله.'
+        };
+    }
+
+    // Check availability of the new slot
+    const avail = await checkAvailability({
+        date: newDate,
+        doctor: foundApt.doctor,
+        time: newTime,
+        currentDate
+    });
+
+    if (!avail.available) {
+        return {
+            success: false,
+            message: avail.message || 'الميعاد الجديد المطلوب غير متاح حالياً.',
+            details: avail
+        };
+    }
+
+    const oldDate = foundApt.dateStr;
+    const oldTime = foundApt.timeStr;
+    foundApt.dateStr = newDate;
+    foundApt.timeStr = newTime;
+    foundApt.normalizedDate = normalizeDate(newDate);
+    foundApt.normalizedTime = normalizeTime(newTime);
+    foundApt.updatedAt = new Date();
+    persistAppointments();
+
+    const cleanId = foundApt.bookingId || foundApt.id;
+    return {
+        success: true,
+        bookingId: cleanId,
+        doctor: foundApt.doctor,
+        oldDate,
+        oldTime,
+        newDate,
+        newTime,
+        message: `تم تعديل ميعاد حجزك بنجاح إلى يوم ${newDate} الساعة ${newTime} مع ${foundApt.doctor} (كود الحجز: ${cleanId}).`
+    };
+}
+
+/**
+ * Dynamic Today Lookup: Returns doctors working today with remaining available non-colliding slots
+ */
+function getTodayAvailableDoctorsAndSlots(now = new Date()) {
+    const dayIdx = now.getDay();
+    const dayNamesAr = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+    const todayName = dayNamesAr[dayIdx];
+    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+    const normToday = normalizeDate(todayName);
+
+    const activeApts = getMemoryAppointments().filter(apt => apt.status !== 'cancelled');
+    const workingDoctors = [];
+
+    for (const doc of Object.values(DOCTORS_SCHEDULE)) {
+        if (doc.workingDayIndices.includes(dayIdx)) {
+            const rawSlots = doc.slotsByDay[dayIdx] || [];
+            // Filter future slots today
+            const futureSlots = rawSlots.filter(s => {
+                const sMin = timeToMinutes(s);
+                return sMin !== null && sMin > currentMinutes;
+            });
+
+            // Filter out booked slots
+            const availableSlots = futureSlots.filter(s => {
+                const normTime = normalizeTime(s);
+                const isBooked = activeApts.some(apt => {
+                    const isDoc = apt.doctor && (apt.doctor.includes(doc.name) || doc.name.includes(apt.doctor));
+                    return isDoc && apt.normalizedDate === normToday && apt.normalizedTime === normTime;
+                });
+                return !isBooked;
+            });
+
+            workingDoctors.push({
+                id: doc.id,
+                name: doc.name,
+                specialty: doc.specialty,
+                departmentTitle: doc.departmentTitle || doc.department,
+                hoursAr: doc.hoursAr,
+                branches: doc.branches,
+                totalSlotsToday: rawSlots.length,
+                remainingSlotsToday: availableSlots.length,
+                availableSlots
+            });
+        }
+    }
+
+    return {
+        dayIndex: dayIdx,
+        dayNameAr: todayName,
+        isToday: true,
+        workingDoctors
+    };
+}
+
+// -------------------------------------------------------------
+// Live Chat Sessions & Human Takeover Store
+// -------------------------------------------------------------
+let chatSessionsStore = null;
+
+function getChatSessionsStore() {
+    if (!chatSessionsStore) {
+        const stored = loadJSON(CHATS_FILE, null);
+        if (stored && typeof stored === 'object') {
+            chatSessionsStore = stored;
+        } else {
+            chatSessionsStore = {};
+            saveJSON(CHATS_FILE, chatSessionsStore);
+        }
+    }
+    return chatSessionsStore;
+}
+
+function persistChatSessions() {
+    if (chatSessionsStore) {
+        saveJSON(CHATS_FILE, chatSessionsStore);
+    }
+}
+
+function getChatSessions() {
+    const store = getChatSessionsStore();
+    return Object.values(store).map(sess => {
+        const isTakeoverReq = Boolean(sess.takeoverRequested || sess.state?.takeoverRequested || sess.state?.humanTakeover || sess.isTakenOver);
+        return {
+            sessionId: sess.sessionId,
+            patientName: sess.patientName || sess.state?.patientName || sess.state?.userName || 'مريض زائر',
+            phone: sess.phone || sess.state?.patientPhone || 'غير متوفر',
+            doctor: sess.doctor || sess.state?.bookingDraft?.doctor || 'عام',
+            lastMessage: sess.lastMessage || '',
+            lastUpdated: sess.lastUpdated || sess.createdAt || new Date(),
+            isTakenOver: Boolean(sess.isTakenOver),
+            takeoverRequested: isTakeoverReq,
+            agentName: sess.agentName || null,
+            messageCount: sess.history ? sess.history.length : 0,
+            status: sess.isTakenOver ? 'human_takeover' : isTakeoverReq ? 'takeover_requested' : 'ai_active',
+            history: sess.history || [],
+            state: sess.state || {}
+        };
+    }).sort((a, b) => new Date(b.lastUpdated) - new Date(a.lastUpdated));
+}
+
+function getChatSession(sessionId) {
+    const store = getChatSessionsStore();
+    return store[sessionId] || null;
+}
+
+function deleteChatSession(sessionId) {
+    if (!sessionId) return false;
+    const store = getChatSessionsStore();
+    if (store[sessionId]) {
+        delete store[sessionId];
+        persistChatSessions();
+        return true;
+    }
+    return false;
+}
+
+function saveChatSession(sessionId, sessionData) {
+    if (!sessionId) return;
+    const store = getChatSessionsStore();
+    const existing = store[sessionId] || { sessionId, history: [], createdAt: new Date() };
+
+    // Cleanly evaluate takeover request: do NOT stick to true if explicitly cleared or booking confirmed
+    let takeoverReq = false;
+    const isBookingConfirmed = Boolean(
+        sessionData.card?.type === 'booking_confirmed' || 
+        sessionData.state?.bookingId || 
+        sessionData.state?.status === 'completed'
+    );
+
+    if (isBookingConfirmed || sessionData.isTakenOver) {
+        takeoverReq = false;
+    } else if (sessionData.takeoverRequested !== undefined) {
+        takeoverReq = Boolean(sessionData.takeoverRequested);
+    } else if (sessionData.state?.takeoverRequested !== undefined) {
+        takeoverReq = Boolean(sessionData.state?.takeoverRequested);
+    } else if (sessionData.state?.humanTakeover !== undefined) {
+        takeoverReq = Boolean(sessionData.state?.humanTakeover);
+    } else {
+        takeoverReq = Boolean(existing.takeoverRequested);
+    }
+
+    store[sessionId] = {
+        ...existing,
+        ...sessionData,
+        takeoverRequested: takeoverReq,
+        sessionId,
+        lastUpdated: new Date()
+    };
+    persistChatSessions();
+    return store[sessionId];
+}
+
+function setHumanTakeover(sessionId, isTakenOver, agentName = 'موظفة الاستقبال سارة') {
+    const store = getChatSessionsStore();
+    if (!store[sessionId]) {
+        store[sessionId] = { sessionId, history: [], createdAt: new Date() };
+    }
+    store[sessionId].isTakenOver = Boolean(isTakenOver);
+    // When taken over OR returned to bot, clear pending takeover request
+    store[sessionId].takeoverRequested = false;
+    if (store[sessionId].state) {
+        store[sessionId].state.takeoverRequested = false;
+        store[sessionId].state.humanTakeover = false;
+        if (!isTakenOver) {
+            store[sessionId].state.status = 'active';
+        }
+    }
+    store[sessionId].agentName = isTakenOver ? agentName : null;
+    store[sessionId].lastUpdated = new Date();
+    persistChatSessions();
+    return store[sessionId];
+}
+
+/**
+ * Generate Weekly Schedule Matrix for doctors (Saturday through Friday)
+ */
+async function getWeeklyScheduleMatrix(requestedStartDate) {
+    let refDate = requestedStartDate ? new Date(requestedStartDate) : new Date();
+    if (isNaN(refDate.getTime())) refDate = new Date();
+
+    // Compute Saturday of that week (Saturday is day 6 in JS Date: 0=Sun, 1=Mon, ..., 6=Sat)
+    const dayOfWeek = refDate.getDay();
+    const daysSinceSaturday = (dayOfWeek + 1) % 7; // 6->0, 0->1, 1->2, 2->3, 3->4, 4->5, 5->6
+    const saturday = new Date(refDate.getTime() - daysSinceSaturday * 24 * 60 * 60 * 1000);
+    saturday.setHours(0, 0, 0, 0);
+
+    const arabicDayNames = ['السبت', 'الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة'];
+    const englishDayNames = ['Saturday', 'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+
+    const weekDays = [];
+    for (let i = 0; i < 7; i++) {
+        const d = new Date(saturday.getTime() + i * 24 * 60 * 60 * 1000);
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const dayNum = String(d.getDate()).padStart(2, '0');
+        const dateStr = `${y}-${m}-${dayNum}`;
+        const todayStr = new Date().toISOString().split('T')[0];
+
+        weekDays.push({
+            dateStr,
+            dayNameAr: arabicDayNames[i],
+            dayNameEn: englishDayNames[i],
+            dayNumber: d.getDate(),
+            month: d.getMonth() + 1,
+            year: d.getFullYear(),
+            jsDayIndex: d.getDay(),
+            isToday: dateStr === todayStr,
+            isPast: dateStr < todayStr
+        });
+    }
+
+    const allAppointments = await getAllAppointments();
+    const allWaitlist = await getAllWaitlist();
+
+    const matrix = Object.values(DOCTORS_SCHEDULE).map(doc => {
+        const schedule = weekDays.map(wDay => {
+            const isWorking = (doc.workingDayIndices || []).includes(wDay.jsDayIndex);
+            if (!isWorking) {
+                return {
+                    dateStr: wDay.dateStr,
+                    dayNameAr: wDay.dayNameAr,
+                    isWorkingDay: false,
+                    slots: []
+                };
+            }
+
+            const rawSlots = (doc.slotsByDay && doc.slotsByDay[wDay.jsDayIndex]) || [];
+            const slots = rawSlots.map(slotTime => {
+                // Check if booked
+                const appt = allAppointments.find(a => {
+                    const matchDoc = a.doctor && (a.doctor.includes(doc.name) || doc.name.includes(a.doctor));
+                    const matchDate = a.date && (a.date.includes(wDay.dateStr) || a.date.includes(wDay.dayNameAr));
+                    const matchTime = a.time === slotTime || a.time?.trim() === slotTime?.trim();
+                    return matchDoc && matchDate && matchTime && a.status !== 'cancelled';
+                });
+
+                // Check waitlist
+                const waitlistEntries = allWaitlist.filter(w => {
+                    const matchDoc = w.doctor && (w.doctor.includes(doc.name) || doc.name.includes(w.doctor));
+                    const matchDate = w.requestedDate && (w.requestedDate.includes(wDay.dateStr) || w.requestedDate.includes(wDay.dayNameAr));
+                    const matchTime = !w.requestedTime || w.requestedTime === slotTime || w.requestedTime.includes(slotTime);
+                    return matchDoc && matchDate && matchTime && w.status !== 'resolved';
+                });
+
+                if (appt) {
+                    return {
+                        time: slotTime,
+                        status: 'booked',
+                        bookingId: appt.bookingId,
+                        patientName: appt.patientName,
+                        phone: appt.phone,
+                        reason: appt.reason || 'كشف',
+                        waitlistCount: waitlistEntries.length,
+                        waitlistEntries: waitlistEntries.map(w => ({ patientName: w.patientName, phone: w.phone, createdAt: w.createdAt }))
+                    };
+                }
+
+                return {
+                    time: slotTime,
+                    status: 'available',
+                    waitlistCount: waitlistEntries.length,
+                    waitlistEntries: waitlistEntries.map(w => ({ patientName: w.patientName, phone: w.phone, createdAt: w.createdAt }))
+                };
+            });
+
+            return {
+                dateStr: wDay.dateStr,
+                dayNameAr: wDay.dayNameAr,
+                isWorkingDay: true,
+                slots
+            };
+        });
+
+        return {
+            id: doc.id,
+            name: doc.name,
+            specialty: doc.specialty,
+            department: doc.department,
+            departmentTitle: doc.departmentTitle,
+            price: doc.price,
+            workingDaysAr: doc.workingDaysAr,
+            hoursAr: doc.hoursAr,
+            schedule
+        };
+    });
+
+    const prevSaturday = new Date(saturday.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const nextSaturday = new Date(saturday.getTime() + 7 * 24 * 60 * 60 * 1000);
+    const friday = new Date(saturday.getTime() + 6 * 24 * 60 * 60 * 1000);
+
+    const fmt = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+    return {
+        week: {
+            startDate: fmt(saturday),
+            endDate: fmt(friday),
+            prevWeekStartDate: fmt(prevSaturday),
+            nextWeekStartDate: fmt(nextSaturday),
+            days: weekDays
+        },
+        matrix
+    };
+}
+
+function addHumanMessage(sessionId, message, agentName = 'موظف الاستقبال') {
+    const store = getChatSessionsStore();
+    if (!store[sessionId]) {
+        store[sessionId] = { sessionId, history: [], createdAt: new Date(), isTakenOver: true, agentName };
+    }
+    const msgObj = {
+        sender: 'human_agent',
+        agentName: agentName,
+        text: message,
+        timestamp: new Date().toISOString()
+    };
+    store[sessionId].history = store[sessionId].history || [];
+    store[sessionId].history.push(msgObj);
+    store[sessionId].lastMessage = message;
+    store[sessionId].lastUpdated = new Date();
+    store[sessionId].isTakenOver = true;
+    store[sessionId].agentName = agentName;
+    persistChatSessions();
+    return msgObj;
+}
+
+/**
  * Get all appointments (decrypted for admin view)
  */
 async function getAllAppointments() {
     return getMemoryAppointments().map(apt => ({
-        id: apt.id,
+        id: apt.bookingId || apt.id,
+        bookingId: apt.bookingId || apt.id,
         doctor: apt.doctor,
         date: apt.dateStr,
         time: apt.timeStr,
         patientName: apt.patientNameEnc ? decrypt(apt.patientNameEnc) : 'مريض غير معروف',
         phone: apt.phoneEnc ? decrypt(apt.phoneEnc) : 'غير متوفر',
         status: apt.status,
-        reason: apt.reason
+        reason: apt.reason,
+        createdAt: apt.createdAt,
+        reminderNotice: apt.reminderNotice || (apt.status === 'cancelled' ? 'الحجز ملغى' : 'سيتم إرسال تذكير تلقائي عبر الواتساب قبل الموعد بـ 24 ساعة')
     }));
 }
 
@@ -787,7 +1452,7 @@ async function getAllAppointments() {
  * Get all waitlist entries (decrypted for admin view)
  */
 async function getAllWaitlist() {
-    return memoryWaitlist.map(wtl => ({
+    return getMemoryWaitlist().map(wtl => ({
         id: wtl.id,
         doctor: wtl.doctor,
         requestedDate: wtl.requestedDate,
@@ -821,9 +1486,27 @@ module.exports = {
     checkAvailability,
     bookAppointment,
     addToWaitlist,
+    cancelAppointment,
+    rescheduleAppointment,
+    getTodayAvailableDoctorsAndSlots,
     getAllAppointments,
     getAllWaitlist,
     getNextWorkingDay,
     isDateToday,
-    BRANCHES
+    BRANCHES,
+    generateBookingId,
+    // Dynamic Blacklist
+    getBlacklist,
+    addBlacklistWord,
+    removeBlacklistWord,
+    isWordBlacklisted,
+    // Live Chat & Human Takeover
+    getChatSessions,
+    getChatSession,
+    saveChatSession,
+    setHumanTakeover,
+    deleteChatSession,
+    getWeeklyScheduleMatrix,
+    addHumanMessage,
+    resetDataStores
 };

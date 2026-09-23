@@ -2,6 +2,7 @@ const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '../.env') });
 const QA_TEST_SUITE = require('../config/qa_suite');
 const receptionistAgent = require('./receptionistAgent');
+const appointmentService = require('./appointmentService');
 
 /**
  * Execute a single turn and evaluate its assertions
@@ -95,6 +96,9 @@ async function executeTurn({ userMessage, assertions = {}, sessionId, sessionDat
  * Run a single test case across all its turns
  */
 async function runTestCase(testCase, currentDate = new Date()) {
+    if (typeof appointmentService.resetDataStores === 'function') {
+        appointmentService.resetDataStores();
+    }
     const caseStartTime = Date.now();
     const sessionId = `qa_${testCase.id}_${Date.now()}`;
     const effectiveDate = testCase.mockDate || currentDate;

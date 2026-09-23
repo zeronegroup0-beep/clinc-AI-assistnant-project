@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nora AI // Developer Matrix & QA Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background-color: #080C14;
+      background-image: 
+        radial-gradient(circle at 10% 20%, rgba(16, 185, 129, 0.05) 0%, transparent 40%),
+        radial-gradient(circle at 90% 80%, rgba(99, 102, 241, 0.06) 0%, transparent 40%);
+      color: #E2E8F0;
+      font-family: 'Cairo', -apple-system, sans-serif;
+      padding: 1.5rem 2rem;
+      min-height: 100vh;
+    }
+    .font-mono { font-family: 'JetBrains Mono', Consolas, monospace; }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      padding-bottom: 1.5rem;
+      margin-bottom: 1.5rem;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      background: rgba(16, 185, 129, 0.12);
+      color: #10B981;
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      padding: 0.2rem 0.6rem;
+      border-radius: 9999px;
+      font-size: 0.72rem;
+      font-weight: 700;
+      font-family: monospace;
+      margin-bottom: 0.5rem;
+    }
+    .ping-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #10B981;
+      box-shadow: 0 0 8px #10B981;
+    }
+    h1 {
+      font-size: 1.5rem;
+      font-weight: 800;
+      color: #F8FAFC;
+    }
+    p.sub {
+      color: #94A3B8;
+      font-size: 0.85rem;
+      margin-top: 0.25rem;
+    }
+    .actions {
+      display: flex;
+      gap: 0.75rem;
+      align-items: center;
+    }
+    button, .btn-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      padding: 0.55rem 1.15rem;
+      border-radius: 9px;
+      font-size: 0.86rem;
+      font-weight: 700;
+      font-family: inherit;
+      cursor: pointer;
+      text-decoration: none;
+      transition: all 0.2s;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, #10B981 0%, #059669 100%);
+      color: white;
+      border: 1px solid #10B981;
+      box-shadow: 0 0 16px rgba(16, 185, 129, 0.35);
+    }
+    .btn-primary:hover:not(:disabled) {
+      box-shadow: 0 0 24px rgba(16, 185, 129, 0.6);
+      transform: translateY(-1px);
+    }
+    .btn-ghost {
+      background: rgba(255, 255, 255, 0.05);
+      color: #CBD5E1;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+    }
+    .btn-ghost:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: white;
+    }
+
+    /* Stats Grid */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 1.25rem;
+      margin-bottom: 1.75rem;
+    }
+    .stat-card {
+      background: rgba(15, 23, 42, 0.75);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 12px;
+      padding: 1.25rem;
+    }
+    .stat-card.emerald { border-color: rgba(16, 185, 129, 0.35); }
+    .stat-card.indigo  { border-color: rgba(99, 102, 241, 0.35); }
+    .stat-card.blue    { border-color: rgba(59, 130, 246, 0.35); }
+    .stat-card.amber   { border-color: rgba(245, 158, 11, 0.35); }
+    .stat-label {
+      font-size: 0.8rem;
+      color: #94A3B8;
+      font-weight: 600;
+    }
+    .stat-val {
+      font-size: 1.85rem;
+      font-weight: 800;
+      margin: 0.35rem 0;
+    }
+    .text-emerald { color: #10B981; }
+    .text-indigo  { color: #818CF8; }
+    .text-blue    { color: #60A5FA; }
+    .text-amber   { color: #FBBF24; }
+    .stat-sub {
+      font-size: 0.75rem;
+      color: #64748B;
+    }
+
+    /* Table */
+    .table-card {
+      background: rgba(15, 23, 42, 0.65);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 12px;
+      overflow: hidden;
+      margin-bottom: 2rem;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: right;
+      font-size: 0.88rem;
+    }
+    thead th {
+      background: rgba(255, 255, 255, 0.03);
+      color: #94A3B8;
+      padding: 0.85rem 1rem;
+      font-weight: 600;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    tbody td {
+      padding: 0.85rem 1rem;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+      vertical-align: middle;
+    }
+    tbody tr:hover { background: rgba(255, 255, 255, 0.02); }
+    .status-badge {
+      display: inline-block;
+      font-family: monospace;
+      font-size: 0.75rem;
+      font-weight: 700;
+      padding: 0.2rem 0.5rem;
+      border-radius: 6px;
+    }
+    .status-pass { background: rgba(16, 185, 129, 0.15); color: #10B981; border: 1px solid rgba(16, 185, 129, 0.3); }
+    .status-fail { background: rgba(239, 68, 68, 0.15); color: #EF4444; border: 1px solid rgba(239, 68, 68, 0.3); }
+    .score-badge {
+      font-family: monospace;
+      font-weight: 800;
+      color: #10B981;
+      background: rgba(16, 185, 129, 0.12);
+      padding: 0.15rem 0.5rem;
+      border-radius: 5px;
+    }
+    .btn-inspect {
+      background: rgba(99, 102, 241, 0.12);
+      color: #818CF8;
+      border: 1px solid rgba(99, 102, 241, 0.3);
+      padding: 0.3rem 0.65rem;
+      border-radius: 6px;
+      font-size: 0.8rem;
+    }
+    .btn-inspect:hover { background: #6366F1; color: white; }
+
+    /* Modal */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.8);
+      backdrop-filter: blur(6px);
+      z-index: 999;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal-box {
+      background: #0B0F19;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 14px;
+      width: 100%;
+      max-width: 800px;
+      max-height: 88vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .modal-header {
+      padding: 1.15rem 1.5rem;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .modal-body {
+      padding: 1.25rem 1.5rem;
+      overflow-y: auto;
+      flex: 1;
+    }
+    .turn-card {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 10px;
+      padding: 1rem;
+      margin-bottom: 1rem;
+    }
+    .msg-user {
+      background: rgba(99, 102, 241, 0.1);
+      border-right: 3px solid #818CF8;
+      padding: 0.6rem 0.85rem;
+      border-radius: 6px;
+      margin-bottom: 0.65rem;
+      font-size: 0.88rem;
+    }
+    .msg-nora {
+      background: rgba(16, 185, 129, 0.08);
+      border-right: 3px solid #10B981;
+      padding: 0.6rem 0.85rem;
+      border-radius: 6px;
+      font-size: 0.88rem;
+      line-height: 1.5;
+    }
+    .reasoning-box {
+      margin-top: 0.5rem;
+      font-size: 0.78rem;
+      color: #94A3B8;
+      padding-top: 0.4rem;
+    }
+    .reasoning-box summary { color: #818CF8; cursor: pointer; }
+    .close-btn {
+      background: none;
+      border: none;
+      color: #94A3B8;
+      font-size: 1.3rem;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <div class="badge">
+        <span class="ping-dot"></span>
+        <span>NORA AI // AUTONOMOUS SELF-PLAY MATRIX</span>
+      </div>
+      <h1>لوحة تحكم وتدقيق الجودة الذاتية (Developer QA Matrix)</h1>
+      <p class="sub font-mono">Real-time Autonomous Self-Play, Multi-Turn Patient Simulations & Critique Logs</p>
+    </div>
+    <div class="actions">
+      <button class="btn-ghost" onclick="loadLogs()">تحديث 🔄</button>
+      <button class="btn-primary" id="btn-run" onclick="runSimulation()">⚡ تشغيل محاكاة اللعب الذاتي (Live)</button>
+      <a href="/" class="btn-link btn-ghost">الرئيسية ↩</a>
+    </div>
+  </header>
+
+  <!-- KPI Row -->
+  <section class="stats-grid">
+    <div class="stat-card emerald">
+      <div class="stat-label">معدل النجاح الإجمالي</div>
+      <div class="stat-val text-emerald font-mono" id="stat-passrate">...</div>
+      <div class="stat-sub" id="stat-passed-ratio">...</div>
+    </div>
+    <div class="stat-card indigo">
+      <div class="stat-label">الموديلات النشطة</div>
+      <div class="stat-val text-indigo font-mono" style="font-size: 1.25rem;">gemini-3.6-flash</div>
+      <div class="stat-sub">+ Nora-Hybrid-RuleCore</div>
+    </div>
+    <div class="stat-card blue">
+      <div class="stat-label">متوسط الأدوار / السيناريو</div>
+      <div class="stat-val text-blue font-mono" id="stat-turns">2.5</div>
+      <div class="stat-sub">3-5 Turns Multi-Turn Loop</div>
+    </div>
+    <div class="stat-card amber">
+      <div class="stat-label">زمن التنفيذ</div>
+      <div class="stat-val text-amber font-mono" id="stat-duration">...</div>
+      <div class="stat-sub" id="stat-lastrun">منذ قليل</div>
+    </div>
+  </section>
+
+  <!-- Table -->
+  <section class="table-card">
+    <table>
+      <thead>
+        <tr>
+          <th>الحالة</th>
+          <th>السيناريو المستهدف</th>
+          <th>الشخصية الافتراضية (Persona)</th>
+          <th>الدرجة</th>
+          <th>الأدوار</th>
+          <th>نقد الجودة (Critique)</th>
+          <th>فحص</th>
+        </tr>
+      </thead>
+      <tbody id="table-body">
+        <tr><td colspan="7" style="text-align: center; padding: 2rem;">جاري تحميل السجلات...</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- Replay Modal -->
+  <div class="modal-overlay" id="modal">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 id="modal-title" style="color: #F8FAFC;">سجل المحادثة</h3>
+        <button class="close-btn" onclick="closeModal()">&times;</button>
+      </div>
+      <div class="modal-body" id="modal-body">
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let currentSessions = [];
+
+    async function loadLogs() {
+      try {
+        const res = await fetch('/api/dev/logs');
+        const json = await res.json();
+        if (json.success && json.data) {
+          renderData(json.data);
+        }
+      } catch (err) {
+        console.error('Failed to load logs', err);
+      }
+    }
+
+    async function runSimulation() {
+      const btn = document.getElementById('btn-run');
+      btn.disabled = true;
+      btn.innerText = 'جاري المحاكاة التنافسية... ⏳';
+      try {
+        const res = await fetch('/api/dev/run-simulation', { method: 'POST' });
+        const json = await res.json();
+        if (json.success && json.data) {
+          renderData(json.data);
+          alert('✅ اكتملت المحاكاة الذاتية بنجاح!');
+        }
+      } catch (err) {
+        alert('حدث خطأ أثناء تشغيل المحاكاة.');
+      } finally {
+        btn.disabled = false;
+        btn.innerText = '⚡ تشغيل محاكاة اللعب الذاتي (Live)';
+      }
+    }
+
+    function renderData(data) {
+      const s = data.summary;
+      document.getElementById('stat-passrate').innerText = s.passRate || '0%';
+      document.getElementById('stat-passed-ratio').innerText = `${s.passed} من ${s.totalRuns} سيناريوهات ناجحة`;
+      document.getElementById('stat-turns').innerText = s.avgTurns || '2.5';
+      document.getElementById('stat-duration').innerText = (s.durationMs / 1000).toFixed(2) + 's';
+      document.getElementById('stat-lastrun').innerText = s.lastRun ? new Date(s.lastRun).toLocaleTimeString('ar-EG') : 'منذ قليل';
+
+      currentSessions = data.sessions || [];
+      const tbody = document.getElementById('table-body');
+      tbody.innerHTML = currentSessions.map((session, idx) => {
+        const isPassed = session.status === 'PASSED';
+        return `
+          <tr>
+            <td>
+              <span class="status-badge ${isPassed ? 'status-pass' : 'status-fail'}">
+                ${isPassed ? '✓ PASS' : '✗ FAIL'}
+              </span>
+            </td>
+            <td>
+              <strong>${session.scenario}</strong>
+              <div style="font-size: 0.72rem; color: #64748B;" class="font-mono">${session.id}</div>
+            </td>
+            <td>
+              <strong>${session.persona?.name || 'مريض'}</strong>
+              <div style="font-size: 0.75rem; color: #94A3B8;">${session.persona?.style || ''}</div>
+            </td>
+            <td>
+              <span class="score-badge">${session.score}%</span>
+            </td>
+            <td><span class="font-mono">${session.turnsCount} turns</span></td>
+            <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+              ${session.critique}
+            </td>
+            <td>
+              <button class="btn-inspect" onclick="openModal(${idx})">فحص السجل 👁️</button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function openModal(idx) {
+      const s = currentSessions[idx];
+      if (!s) return;
+      document.getElementById('modal-title').innerText = `${s.scenario} (${s.status} - ${s.score}%)`;
+      const body = document.getElementById('modal-body');
+      body.innerHTML = `
+        <div style="background: rgba(255,255,255,0.03); padding: 0.75rem 1rem; border-radius: 8px; margin-bottom: 1rem;">
+          <div><strong>المريض:</strong> ${s.persona?.name} (${s.persona?.style})</div>
+          <div style="font-size: 0.84rem; color: #94A3B8; margin-top: 0.25rem;"><strong>الهدف:</strong> ${s.persona?.objective}</div>
+        </div>
+        <h4 style="color: #94A3B8; margin-bottom: 0.75rem; font-size: 0.88rem;">تفاصيل الأدوار (Multi-Turn Replay):</h4>
+        ${s.turns?.map(t => `
+          <div class="turn-card">
+            <div style="font-size: 0.72rem; color: #64748B; margin-bottom: 0.5rem;" class="font-mono">TURN ${t.turn}</div>
+            <div class="msg-user">
+              <div style="font-size: 0.75rem; color: #818CF8; font-weight: 700; margin-bottom: 0.2rem;">المحاكي الافتراضي (${s.persona?.name}):</div>
+              <div>${t.userMessage}</div>
+            </div>
+            <div class="msg-nora">
+              <div style="font-size: 0.75rem; color: #10B981; font-weight: 700; margin-bottom: 0.2rem;">نورا (الاستقبال الذكي):</div>
+              <div>${t.botReply}</div>
+              ${t.reasoningSteps && t.reasoningSteps.length ? `
+                <details class="reasoning-box">
+                  <summary class="font-mono">🧠 منطق وخطوات التفكير (${t.reasoningSteps.length})</summary>
+                  <ul style="margin: 0.35rem 1.25rem 0 0;">
+                    ${t.reasoningSteps.map(step => `<li>${step}</li>`).join('')}
+                  </ul>
+                </details>
+              ` : ''}
+            </div>
+          </div>
+        `).join('')}
+        <div style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); padding: 0.85rem; border-radius: 8px; margin-top: 1rem;">
+          <strong style="color: #10B981;">تقرير تقييم الجودة (QA Verdict):</strong>
+          <p style="margin-top: 0.25rem; font-size: 0.85rem;">${s.critique}</p>
+        </div>
+      `;
+      document.getElementById('modal').classList.add('open');
+    }
+
+    function closeModal() {
+      document.getElementById('modal').classList.remove('open');
+    }
+
+    window.onclick = function(e) {
+      if (e.target.id === 'modal') closeModal();
+    }
+
+    loadLogs();
+  </script>
+</body>
+</html>
