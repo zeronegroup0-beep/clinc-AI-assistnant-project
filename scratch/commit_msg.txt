@@ -1,7 +1,5 @@
-feat: implement Nora Ultimate Production v3.0 standard
+feat(cloudflare): support voice message edge processing and complete mobile deployment
 
-- STT Normalization Layer: Automatic phonetic correction for Egyptian dialect audio transcripts ("كاتدرائية" -> "دكاترة", "دمنهول" -> "دمنهور") and unified booking triggers standardization.
-- Strict Slot-Filling & Zero-Default Interceptor: Generic booking inquiries short-circuit to the standard clinical doctors menu without calling slot tools or defaulting to Dr. Ahmed.
-- State Management & Dynamic Entity Switching: Fully clear previous doctor/specialty state and slots when user changes their mind or updates entities mid-flow.
-- Dynamic Few-Shot Injection: Integrated Memory Bank with gold standards, top-3 injection, and fixed cleanText bug.
-- 100% test pass rate across 7 self-play scenarios.
+- Add /api/chat/voice-message handler in worker.js for direct serverless edge processing on Cloudflare
+- Enable live STT and audio transcription with Gemini Flash on edge
+- Ensure all recent changes are fully synced to GitHub for Cloudflare auto-deployment

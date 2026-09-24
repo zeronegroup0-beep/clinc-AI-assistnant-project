@@ -103,6 +103,75 @@ export default {
           });
         }
 
+        // Voice Message Edge Handler (Support mobile audio recording on Cloudflare)
+        if (url.pathname === '/api/chat/voice-message' && request.method === 'POST') {
+          const body = await request.json().catch(() => ({}));
+          const { audio, mimeType = 'audio/webm', language = 'ar', liveText, sessionId, sessionData = {} } = body;
+
+          let transcribedText = '';
+          if (liveText && typeof liveText === 'string' && liveText.trim().length >= 2) {
+            transcribedText = liveText.trim();
+          } else if (audio && env.GEMINI_API_KEY) {
+            try {
+              const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${env.GEMINI_API_KEY.trim()}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  contents: [{
+                    role: 'user',
+                    parts: [
+                      { inline_data: { mime_type: mimeType.split(';')[0].trim(), data: audio.replace(/^data:.*?;base64,/, '') } },
+                      { text: 'أنت مفرغ صوتي محترف ومترجم لعيادة طبية راقية. استمع لهذا المقطع الصوتي بدقة وفرّغه حرفياً إلى نص باللغة العربية. اكتب فقط النص المنطوق بدون أي مقدمات أو تحيات أو علامات تنصيص.' }
+                    ]
+                  }]
+                })
+              });
+              if (res.ok) {
+                const data = await res.json();
+                transcribedText = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+              }
+            } catch (e) {
+              console.warn('Worker voice transcribe error:', e);
+            }
+          }
+
+          if (!transcribedText) {
+            return new Response(JSON.stringify({ success: false, message: 'تعذر التعرف على الصوت' }), {
+              status: 400,
+              headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' }
+            });
+          }
+
+          if (receptionistAgent.normalizeTypoAndSlang) {
+            transcribedText = receptionistAgent.normalizeTypoAndSlang(transcribedText);
+          }
+
+          const effectiveSessionId = (sessionId && sessionId !== 'default_session')
+            ? sessionId
+            : 'session_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
+
+          const result = await receptionistAgent.processChatMessage({
+            message: transcribedText,
+            sessionId: effectiveSessionId,
+            sessionData: sessionData || {},
+            currentDate: new Date()
+          });
+
+          return new Response(JSON.stringify({
+            success: true,
+            sessionId: effectiveSessionId,
+            transcribedText,
+            reply: result.reply,
+            reasoningSteps: result.reasoningSteps || [],
+            state: result.state,
+            card: result.card || null,
+            suggestedSlots: result.suggestedSlots || []
+          }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' }
+          });
+        }
+
         if (url.pathname === '/api/appointments' && request.method === 'GET') {
           const apps = await appointmentService.getAllAppointments();
           return new Response(JSON.stringify({ success: true, count: apps.length, data: apps }), {
