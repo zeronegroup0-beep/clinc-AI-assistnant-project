@@ -176,9 +176,12 @@ router.post('/chat/voice-transcribe', async (req, res) => {
             });
         }
 
+        const normalized = receptionistAgent.normalizeTypoAndSlang(result.text);
+
         return res.json({
             success: true,
-            text: result.text,
+            text: normalized || result.text,
+            rawText: result.text,
             provider: result.provider,
             model: result.model
         });
@@ -225,6 +228,10 @@ router.post('/chat/voice-message', async (req, res, next) => {
         } else {
             return res.status(400).json({ success: false, message: 'تعذر التعرف على الصوت' });
         }
+
+        // Apply STT Normalization Layer (Fix phonetic errors, booking triggers, and dialect hallucinations)
+        transcribedText = receptionistAgent.normalizeTypoAndSlang(transcribedText);
+
         const effectiveSessionId = (sessionId && sessionId !== 'default_session')
             ? sessionId
             : 'session_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);

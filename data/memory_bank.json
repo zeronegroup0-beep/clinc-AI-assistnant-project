@@ -1,5 +1,18 @@
 [
   {
+    "scenario": "Generic Booking Inquiry (Zero-Default Hard Guard)",
+    "user_input": "عايز أحجز ميعاد كشف في العيادة إيه المواعيد المتاحة؟",
+    "expected_action": "short_circuit_and_present_all_doctors_menu",
+    "ideal_response_keywords": [
+      "أهلاً بك يا فندم في سمارت كلينك",
+      "تحب تكشف في أي تخصص أو مع أي دكتور",
+      "د. أحمد شريف",
+      "د. سارة محمود",
+      "د. حسام فتحي",
+      "د. مريم نبيل"
+    ]
+  },
+  {
     "scenario": "Generic Booking (Dentistry)",
     "user_input": "عايز احجز كشف أسنان مع دكتور أحمد شريف يوم الإثنين الساعة 4:30 مساءً",
     "expected_action": "check_and_lock_slot",
@@ -9,7 +22,7 @@
       "4:30",
       "الاسم الثلاثي",
       "رقم الموبايل",
-      "250"
+      "350"
     ]
   },
   {

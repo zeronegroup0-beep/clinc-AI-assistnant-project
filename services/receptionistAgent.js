@@ -101,6 +101,8 @@ function getSystemPrompt(now = new Date()) {
     const spokenToday = formatSpokenArabicDate(now);
 
     return `
+# SYSTEM PROMPT: NORA - SMART CLINIC AI RECEPTIONIST (ULTIMATE PRODUCTION v3.0)
+
 [SYSTEM CONTEXT - DYNAMIC CURRENT DATE INJECTION]
 Today is ${dateFormattedEn} (اليوم هو ${spokenToday})
 Today's Date: ${todayFormatted}
@@ -110,56 +112,48 @@ Tomorrow's Date ("بكرة" / "غداً"): ${tomorrowFormatted}
 Day After Tomorrow ("بعد بكرة"): ${afterTomorrowFormatted} (يوم ${afterTomorrowDayAr})
 
 أنتِ "نورا"، موظفة الاستقبال الطبية الذكية في "سمارت كلينك AI".
-تتحدثين باللهجة المصرية الودودة، المهذبة، والصبورة جداً مع كبار السن وجميع المرضى.
+تتحدثين بأسلوب راقٍ، مهذب، ودود، وباللهجة المصرية الطبيعية مع كبار السن وجميع المرضى.
+
+## 1. PRE-PROCESSING & SPEECH-TO-TEXT (STT) NORMALIZATION LAYER
+Before passing any user text (especially audio transcripts) to the LLM, apply automatic text normalization to fix common Egyptian dialect STT hallucinations and phonetic mishearings:
+- Replace phonetic errors: "كاتدرائية" -> "دكاترة", "دمنهول" -> "دمنهور"
+- Standardize booking triggers: "عايز", "محتاج", "حابب", "كنت عايز" -> Unified intent formatting.
+
+## 2. STRICT SLOT-FILLING & ZERO-DEFAULT INTERCEPTOR (HARD GUARD)
+IF the user's message is a generic booking, availability, or general inquiry (e.g., "عايز أحجز ميعاد", "إيه المواعيد المتاحة", "مين الدكاترة الموجودين النهارده؟") 
+AND does NOT explicitly state a specific doctor name or specialty:
+- CRITICAL: DO NOT invoke any booking or slot-fetching tools (getDoctorAvailableSlotsSummary, etc.).
+- CRITICAL: NEVER assume, infer, or fallback to any default doctor (e.g., strictly forbidden to default to Dr. Ahmed).
+- SHORT-CIRCUIT immediately and return the comprehensive list of all available doctors and specialties so the client can choose:
+
+"أهلاً بك يا فندم في سمارت كلينك 🌸
+عشان أقدر أساعدك بأدق ميعاد، تحب تكشف في أي تخصص أو مع أي دكتور من استشاريينا؟
+
+• د. أحمد شريف (طب وجراحة الأسنان)
+• د. سارة محمود (الجلدية والتجميل والليزر)
+• د. حسام فتحي (أمراض الباطنة والقلب)
+• د. مريم نبيل (طب وجراحة العيون)"
+
+## 3. STATE MANAGEMENT & DYNAMIC ENTITY SWITCHING
+- When a user changes their mind or switches specialty/doctor mid-conversation, instantly clear/reset the previous entity state.
+- Never mix data or schedules between different doctors in the same response.
+
+## 4. DYNAMIC FEW-SHOT INJECTION (MEMORY BANK)
+- Automatically load the top 3 relevant scenarios from memory_bank.json (handling generic requests, emergency overrides, and mid-flow corrections) and inject them into the prompt context to guide deterministic tool usage.
+
+## 5. TONE & PERSONA
+- Communicate in a warm, professional, natural Egyptian dialect style.
+- Maintain absolute accuracy regarding medical schedules and prices provided strictly by the database tools:
+  * د. أحمد شريف (الأسنان): 350 جنيه
+  * د. سارة محمود (الجلدية والليزر): 300 جنيه
+  * د. حسام فتحي (الباطنة والقلب): 280 جنيه
+  * د. مريم نبيل (العيون): 260 جنيه
 
 قواعد الحوار الصارمة والذاكرة الذكية (Strict State Machine & Guardrails):
-1. التوافق اللغوي الصارم مع جنس المريض (Dynamic Gender & Pronoun Agreement):
-   - تتبعي جنس المريض (مذكر/مؤنث) بمجرد معرفته من الاسم (مثل "سارة" أو "محمود") أو من سياق الحديث ("عايزة", "حابة", "أستاذة").
-   - يجب مطابقة كافة الضمائر والأفعال والصفات مع جنس المريض بدقة ودون أي خلط:
-     * للمؤنث: (أهلاً بكِ أستاذة سارة - نورتِ عيادتنا - حابـة تستفسري - تحبـي تحجزي - مشكورَة - يا فندم).
-     * للمذكر: (أهلاً بكَ أستاذ محمود - نورتَ عيادتنا - حابب تستفسر - تحب تحجز - مشكور - يا فندم).
-   - إياكِ مخاطبة المؤنث بصيغة المذكر أو العكس!
-
-2. حظر السرد العشوائي والتركيز الصارم على الطبيب المطلوب (Strict Entity Filtering):
-   - إذا طلب المريض أو سأل عن طبيب محدد (مثل "دكتور أحمد شريف" أو "دكتورة سارة"):
-     * يمنع منعاً باتاً سرد قائمة أطباء العيادة بالكامل أو عرض النظرة العامة للعيادة!
-     * ركزي حصراً وفقط على الطبيب المطلوب، وتخصصه، ومواعيده المتاحة.
-
-3. التعامل مع تاريخ اليوم ومواعيده المنتهية (Today's Date & Finished Slots Guard):
-   - عند طلب المريض الاستفسار أو الحجز "النهاردة":
-     * قيّمي المواعيد المتبقية المتاحة اليوم فعلياً بعد الوقت الحالي.
-     * إذا كانت مواعيد اليوم قد انتهت أو مرت، وضحي ذلك صراحة وبلباقة:
-       "مواعيد النهاردة خلصت أو انتهت، هل تحب أحجز لك في أول يوم عمل قادم وهو..."
-     * إياكِ والقفز الصامت للأسبوع القادم بدون إعلام المريض بانتهاء مواعيد اليوم!
-
-4. تثبيت الموعد البديل والانتقال للواتساب (Time Slot Negotiation & Lock-in):
-   - عندما يختار المريض ميعاداً بديلاً (مثل "خليها 6" أو "خيلها 6"):
-     * قومي بتثبيت وقفل الموعد فوراً والانتقال مباشرة لطلب رقم الواتساب دون إعادة التكرار أو السؤال عن اليوم/الوقت مرة أخرى.
-
-5. حظر استخراج الأسماء من عبارات التحية (Entity Extraction Guard):
-   - إياكِ نهائياً اعتبار عبارات التحية أو السؤال عن الحال (مثل "أخبارك ايه" أو "عامل ايه") اسماً للمريض!
-   - إذا لم يذكر المريض اسمه صراحة بنمط واضح مثل ("أنا اسمي فلان" أو "معاك فلان")، خاطبيه دائماً بـ "يا فندم" أو "حضرتك".
-
-6. التحقق الصارم من أيام عمل الأطباء (Doctor Working Days Validation):
-   - د. أحمد شريف (الأسنان): السبت، الإثنين، الأربعاء فقط! (الأحد، الثلاثاء، الخميس، الجمعة عطلة).
-   - د. سارة محمود (الجلدية): الأحد، الثلاثاء، الخميس فقط!
-   - د. حسام فتحي (الباطنة): السبت إلى الخميس (الجمعة عطلة).
-   - د. مريم نبيل (العيون): الأحد، الثلاثاء، الخميس فقط!
-   - إذا طلب المريض موعداً في يوم عطلة الطبيب (مثلاً دكتور أحمد يوم الأحد):
-     قولي فوراً وبلطف: "الدكتور مش موجود في اليوم ده، مواعيده المتاحة هي (أيام كذا وكذا)، تحب احجز لك فيهم؟"
-   - ممنوع منعاً باتاً اختراع أو فحص مواعيد في يوم عطلة الطبيب!
-
-7. معالجة الأوقات غير الدقيقة والأنصاف (Time Slot Matching & Half-Hour Handling):
-   - إذا طلب المريض وقتاً غير متطابق تماماً (مثل "الساعة 6 ونص" بينما المتاح 6 و 7 تماماً):
-     طابقي لأقرب موعد ووضحي بلطف: "معلش المتاح الساعة 6 أو 7 تماماً، تحب أحجز لك الساعة 6؟"
-
-8. آلة الحالة لتسلسل الحجز (Conversation Flow State Machine):
-   - تتبعي التسلسل الصارم:
-     1. تحديد التخصص / الطبيب.
-     2. تأكيد اليوم (والتحقق من أيام العمل).
-     3. عرض المواعيد المتاحة المحددة.
-     4. تثبيت الموعد وطلب رقم الواتساب والاسم للتأكيد.
-   - لا تكرري سرد قائمة المواعيد كاملة إذا كان المريض قد تفاوض على وقت محدد أو سأل سؤالاً جانبياً (مثل الأسعار).
+1. التوافق اللغوي الصارم مع جنس المريض (Dynamic Gender & Pronoun Agreement).
+2. حظر السرد العشوائي والتركيز الصارم على الطبيب المطلوب عند تحديده.
+3. معالجة مواعيد اليوم المنتهية بوضوح.
+4. تثبيت الموعد المختار وطلب الاسم الثلاثي ورقم الواتساب للتأكيد.
 `;
 }
 
@@ -196,12 +190,28 @@ function normalizeTypoAndSlang(text) {
     // Standardize Alef variants and Hamzas: [إأآٱ] -> ا
     t = t.replace(/[إأآٱ]/g, 'ا');
 
-    // Standardize multi-word phrases first
-    t = t.replace(/(^|[\s،,.؟?!])كنت\s+(?:عايز|عاوز|محتاج|حابب)($|[\s،,.؟?!])/g, '$1عايز$2')
+    // 1. STT Phonetic Hallucination Fixes (Egyptian STT audio mishearings)
+    t = t.replace(/(^|[\s،,.؟?!])الكاتدرائ(?:ية|يه)($|[\s،,.؟?!])/g, '$1الدكاترة$2')
+         .replace(/(^|[\s،,.؟?!])كاتدرائ(?:ية|يه)($|[\s،,.؟?!])/g, '$1دكاترة$2')
+         .replace(/(^|[\s،,.؟?!])دمنهول($|[\s،,.؟?!])/g, '$1دمنهور$2')
+         .replace(/(^|[\s،,.؟?!])بدمنهول($|[\s،,.؟?!])/g, '$1بدمنهور$2')
+         .replace(/(^|[\s،,.؟?!])لدمنهول($|[\s،,.؟?!])/g, '$1لدمنهور$2');
+
+    // 2. Standardize booking triggers: "عايز", "محتاج", "حابب", "كنت عايز" -> Unified intent formatting
+    t = t.replace(/(^|[\s،,.؟?!])كنت\s+(?:عايز|عاوز|محتاج|حابب|عايزة|عاوزة|محتاجة|حابة|عايزه|عاوزه|محتاجه|حابه)($|[\s،,.؟?!])/g, '$1عايز$2')
+         .replace(/(^|[\s،,.؟?!])(?:انا|أنا)?\s*(?:عايز|عاوز|محتاج|حابب|عايزة|عاوزة|محتاجة|حابة|عايزه|عاوزه|محتاجه|حابه)\s+(?:اني|أني|ان|أن)($|[\s،,.؟?!])/g, '$1عايز$2')
          .replace(/(^|[\s،,.؟?!])احجزلي($|[\s،,.؟?!])/g, '$1احجز لي$2')
          .replace(/(^|[\s،,.؟?!])احجزلى($|[\s،,.؟?!])/g, '$1احجز لي$2');
 
     const wordReplacements = {
+        'كاتدرائية': 'دكاترة',
+        'كاتدرائيه': 'دكاترة',
+        'الكاتدرائية': 'الدكاترة',
+        'الكاتدرائيه': 'الدكاترة',
+        'دمنهول': 'دمنهور',
+        'بدمنهول': 'بدمنهور',
+        'لدمنهول': 'لدمنهور',
+        'دكاتره': 'دكاترة',
         'عيز': 'عايز',
         'عاوز': 'عايز',
         'محتاج': 'عايز',
@@ -250,7 +260,7 @@ function normalizeTypoAndSlang(text) {
     return t;
 }
 
-const UNIVERSAL_GENERIC_BOOKING_REPLY = `أهلاً بك! نورت عيادتنا سمارت كلينك 🌸
+const UNIVERSAL_GENERIC_BOOKING_REPLY = `أهلاً بك يا فندم في سمارت كلينك 🌸
 عشان أقدر أساعدك بأدق ميعاد، تحب تكشف في أي تخصص أو مع أي دكتور من استشاريينا؟
 
 • د. أحمد شريف (طب وجراحة الأسنان)
@@ -274,7 +284,7 @@ function getUniversalGenericBookingReply(gp = {}, honorific = null, isNewNameInt
     if (!honorific && !gp.isFemale) {
         return UNIVERSAL_GENERIC_BOOKING_REPLY;
     }
-    let greeting = 'أهلاً بك! نورت عيادتنا سمارت كلينك 🌸';
+    let greeting = gp.isFemale ? 'أهلاً بكِ يا فندم في سمارت كلينك 🌸' : 'أهلاً بك يا فندم في سمارت كلينك 🌸';
     return `${greeting}\nعشان أقدر أساعدك بأدق ميعاد، ${verb} في أي تخصص أو مع أي دكتور من استشاريينا؟\n\n• د. أحمد شريف (طب وجراحة الأسنان)\n• د. سارة محمود (الجلدية والتجميل والليزر)\n• د. حسام فتحي (أمراض الباطنة والقلب)\n• د. مريم نبيل (طب وجراحة العيون)`;
 }
 
@@ -886,7 +896,11 @@ function isUniversalGenericBookingIntent(text, state = {}) {
     if (extractAllMentionedDoctors(clean, state).length > 0) return false;
 
     // 1. Generic keywords check
-    const genericKeywords = ['احجز', 'حجز', 'ميعاد', 'موعد', 'جلسه', 'جلسة', 'كشف', 'استشاره', 'استشارة', 'فاضيين', 'فاضي', 'مواعيد'];
+    const genericKeywords = [
+        'احجز', 'حجز', 'ميعاد', 'موعد', 'جلسه', 'جلسة', 'كشف', 'استشاره', 'استشارة',
+        'فاضيين', 'فاضي', 'مواعيد', 'دكاتره', 'دكاترة', 'دكتور', 'دكتورة', 'اطباء',
+        'أطباء', 'موجودين', 'متاحين', 'شغالين', 'الموجودين', 'المتاحين'
+    ];
     const hasGenericKeyword = genericKeywords.some(kw => clean.includes(kw));
     if (!hasGenericKeyword) return false;
 
@@ -2017,6 +2031,9 @@ async function internalProcessChatMessage({ message, sessionId, sessionData = {}
         }
     }
 
+    const isExplicitFullNameIntro = normalizedText.includes('اسمي بالكامل') || normalizedText.includes('اسمى بالكامل');
+    const isSingleOrDoubleNameInState = Boolean(state.patientName && state.patientName.trim().split(/\s+/).length < 3);
+
     const isNameCorrection = normalizedText.includes('اسمي مش') || 
                              normalizedText.includes('اسمى مش') ||
                              normalizedText.includes('مش اسمي') || 
@@ -2027,11 +2044,13 @@ async function internalProcessChatMessage({ message, sessionId, sessionData = {}
                              normalizedText.includes('تصحيح الاسم') || 
                              normalizedText.includes('الاسم الصحيح') || 
                              normalizedText.includes('الاسم الصح') ||
-                             normalizedText.includes('الاسم غلط');
+                             normalizedText.includes('الاسم غلط') ||
+                             isExplicitFullNameIntro;
 
-    if (!state.patientName || isNameCorrection) {
-        const extractedName = extractNameFromMessage(rawText, Boolean(state.awaitingName)) || extractNameFromMessage(normalizedText, Boolean(state.awaitingName));
-        if (extractedName) {
+    if (!state.patientName || isNameCorrection || isSingleOrDoubleNameInState) {
+        const extractedName = extractNameFromMessage(rawText, Boolean(state.awaitingName || isExplicitFullNameIntro || isNameCorrection)) || 
+                              extractNameFromMessage(normalizedText, Boolean(state.awaitingName || isExplicitFullNameIntro || isNameCorrection));
+        if (extractedName && (!state.patientName || isNameCorrection || isExplicitFullNameIntro || extractedName.split(/\s+/).length > state.patientName.split(/\s+/).length)) {
             state.patientName = extractedName;
             state.userName = extractFirstName(extractedName) || extractedName;
             delete state.awaitingName;
@@ -2087,6 +2106,38 @@ async function internalProcessChatMessage({ message, sessionId, sessionData = {}
         corrReply += ' بنجاح! ';
 
         if (state.bookingDraft?.doctor) {
+            const timeToBook = state.bookingDraft.time || state.suggestedAlternativeTime;
+            const dateToBook = state.bookingDraft.date || (state.lastDiscussedDate && state.lastDiscussedDate.label) || 'يوم السبت';
+
+            if (state.patientPhone && state.patientName && timeToBook && dateToBook) {
+                state.bookingDraft.time = timeToBook;
+                state.bookingDraft.date = dateToBook;
+                const newCode = Math.floor(10000 + Math.random() * 90000);
+                state.bookingReference = 'SC-' + newCode;
+                delete state.awaitingPhone;
+                delete state.awaitingName;
+                delete state.suggestedAlternativeTime;
+                
+                const finalReply = `تم تأكيد حجز حضرتك يا ${newHonorific} (${state.patientName}) بنجاح! ميعادك ${dateToBook} الساعة ${timeToBook} مع ${state.bookingDraft.doctor} (كود الحجز: ${newCode}). هنبعت لحضرتك رسالة تأكيد على الواتساب على رقم ${state.patientPhone}. وهنبعت لحضرتك تذكير تلقائي عبر الواتساب قبل الموعد بـ 24 ساعة. 📱 ألف سلامة على حضرتك وتنورنا في العيادة! 🌸`;
+
+                reasoningSteps.push(`تأكيد الحجز النهائي برقم كود ${newCode} لدكتور ${state.bookingDraft.doctor} بعد استيفاء وتصحيح بيانات المريض بالكامل`);
+
+                return {
+                    reply: finalReply,
+                    reasoningSteps,
+                    state,
+                    card: {
+                        type: 'booking_confirmed',
+                        doctor: state.bookingDraft.doctor,
+                        date: dateToBook,
+                        time: timeToBook,
+                        patientName: state.patientName,
+                        patientPhone: state.patientPhone,
+                        bookingCode: newCode
+                    }
+                };
+            }
+
             if (state.bookingDraft.date && state.bookingDraft.time) {
                 corrReply += `تحب${gp.isFemale ? 'ي' : ''} نأكد حجز ميعاد حضرتك ${state.bookingDraft.date} الساعة ${state.bookingDraft.time} مع ${state.bookingDraft.doctor}؟`;
             } else if (state.bookingDraft.date) {
@@ -3429,6 +3480,10 @@ async function internalProcessChatMessage({ message, sessionId, sessionData = {}
         delete state.waitlistSlot;
         delete state.awaitingWaitlist;
         delete state.lastDiscussedDate;
+        delete state.presentedSlots;
+        delete state.presentedDateLabel;
+        delete state.presentedDateStr;
+        delete state.presentedDoctorId;
 
         if (isExplicitChangeOfMind && !extractedDoc) {
             return {
@@ -4151,6 +4206,15 @@ async function processChatMessage(params) {
     const rawMsg = params.message || '';
     const topFewShots = selectTopGoldStandards(rawMsg, 3);
     res.fewShotExamples = topFewShots;
+
+    // Hard Guard (Strict Slot-Filling & Zero-Default Interceptor):
+    // Do NOT pass generic doctor menu, emergency redirects, or disciplinary warnings to LLM reformulation
+    if (res.state?.awaitingDoctorSelection || 
+        res.reply.includes('تحب تكشف في أي تخصص أو مع أي دكتور من استشاريينا؟') || 
+        res.reply.includes('أهلاً بك يا فندم في سمارت كلينك') ||
+        res.state?.emergency || res.state?.isEmergency || res.state?.abuseBlocked) {
+        return res;
+    }
 
     // If Gemini or OpenAI is configured, pass response with injected few-shots for natural conversational formulation
     if (geminiAgent && typeof geminiAgent.reformulateWithLLM === 'function' && geminiAgent.isLLMEnabled()) {

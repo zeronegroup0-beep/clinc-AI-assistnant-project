@@ -1,9 +1,7 @@
-feat: implement voice notes, adaptive UI, self-improving QA engine, and developer matrix dashboard
+feat: implement Nora Ultimate Production v3.0 standard
 
-- Add Voice Note recording & Speech-to-Text with Gemini 3.6 Flash multimodal transcription and Web Speech API live fallback.
-- Fix text input focus loss retention across mobile and desktop.
-- Overhaul responsive UI with adaptive clamp scaling, safe-area insets, and bottom-sheet docking.
-- Phase 1: Create Memory Bank (data/memory_bank.json) with 8 clinical gold standard scenarios.
-- Phase 2: Add dynamic few-shot injection to prompt before LLM formulation in receptionistAgent.js and geminiAgent.js.
-- Phase 3: Implement AI self-play & multi-turn evaluation engine (scripts/self_play_engine.js) with 100% pass rate.
-- Phase 4: Create Matrix Developer Dashboard (/dev-dashboard, DevDashboardPage.jsx, public/dev_dashboard.html) with replay inspector and dev API routes (/api/dev/logs, /api/dev/run-simulation, /api/dev/memory-bank).
+- STT Normalization Layer: Automatic phonetic correction for Egyptian dialect audio transcripts ("كاتدرائية" -> "دكاترة", "دمنهول" -> "دمنهور") and unified booking triggers standardization.
+- Strict Slot-Filling & Zero-Default Interceptor: Generic booking inquiries short-circuit to the standard clinical doctors menu without calling slot tools or defaulting to Dr. Ahmed.
+- State Management & Dynamic Entity Switching: Fully clear previous doctor/specialty state and slots when user changes their mind or updates entities mid-flow.
+- Dynamic Few-Shot Injection: Integrated Memory Bank with gold standards, top-3 injection, and fixed cleanText bug.
+- 100% test pass rate across 7 self-play scenarios.

@@ -136,7 +136,7 @@ const SELF_PLAY_SCENARIOS = [
     turns: [
       {
         turn: 1,
-        userMessage: 'عايز احجز كشف باطنة مع دكتور حسام فتحي بكرة الساعة 5 مساءً',
+        userMessage: 'عايز احجز كشف باطنة مع دكتور حسام فتحي يوم السبت الساعة 5 مساءً',
         expectedIntent: 'ask_credentials',
         evaluatorCriteria: {
           mustAskPatientInfo: true
